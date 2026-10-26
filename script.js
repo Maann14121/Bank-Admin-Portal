@@ -1,78 +1,99 @@
 
-const form = document.getElementById("employeeForm");
-const list = document.getElementById("employeeList");
-const message = document.getElementById("message");
-
-const fields = {
-  first: document.getElementById("firstSearch"),
-  last: document.getElementById("lastSearch"),
-  location: document.getElementById("locationSearch")
-};
+const API_BASE = "https://supernatural-spider-p79g9gq7jg9jc6q6p-8080.app.github.dev/api/staff";
 
 let employees = [];
 
+const firstNameInput = document.querySelector(
+  '#firstNameSearch, input[placeholder*="First Name" i], input[placeholder*="first name" i]'
+);
+
+const lastNameInput = document.querySelector(
+  '#lastNameSearch, input[placeholder*="Last Name" i], input[placeholder*="last name" i]'
+);
+
+const locationInput = document.querySelector(
+  '#locationSearch, input[placeholder*="Location" i], input[placeholder*="location" i]'
+);
+
+const tableBody =
+  document.querySelector("#employeeTableBody") ||
+  document.querySelector("#employeeTable tbody") ||
+  document.querySelector("table tbody");
+
 function renderEmployees() {
-  const first = fields.first.value.trim().toLowerCase();
-  const last = fields.last.value.trim().toLowerCase();
-  const location = fields.location.value.trim().toLowerCase();
+  if (!tableBody) {
+    console.error("Employee table body nahi mila. index.html check karo.");
+    return;
+  }
 
-  list.replaceChildren();
+  const first = (firstNameInput?.value || "").trim().toLowerCase();
+  const last = (lastNameInput?.value || "").trim().toLowerCase();
+  const location = (locationInput?.value || "").trim().toLowerCase();
 
-  employees.forEach((employee, index) => {
-    if (!employee.first.toLowerCase().includes(first)) return;
-    if (!employee.last.toLowerCase().includes(last)) return;
-    if (!employee.location.toLowerCase().includes(location)) return;
+  const filtered = employees.filter(employee =>
+    (employee.firstName || "").toLowerCase().includes(first) &&
+    (employee.lastName || "").toLowerCase().includes(last) &&
+    (employee.branch || "").toLowerCase().includes(location)
+  );
 
+  tableBody.replaceChildren();
+
+  if (filtered.length === 0) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 6;
+    cell.textContent = "No employees found.";
+    row.appendChild(cell);
+    tableBody.appendChild(row);
+    return;
+  }
+
+  filtered.forEach(employee => {
     const row = document.createElement("tr");
 
     [
-      employee.first + " " + employee.last,
+      employee.firstName,
+      employee.lastName,
       employee.title,
       employee.email,
       employee.phone,
-      employee.location
+      employee.branch
     ].forEach(value => {
       const cell = document.createElement("td");
-      cell.textContent = value;
+      cell.textContent = value || "";
       row.appendChild(cell);
     });
 
-    const actionCell = document.createElement("td");
-    const removeButton = document.createElement("button");
-
-    removeButton.textContent = "Remove";
-    removeButton.className = "delete-button";
-    removeButton.type = "button";
-
-    removeButton.addEventListener("click", () => {
-      employees.splice(index, 1);
-      renderEmployees();
-      message.textContent = "Employee removed.";
-    });
-
-    actionCell.appendChild(removeButton);
-    row.appendChild(actionCell);
-    list.appendChild(row);
+    tableBody.appendChild(row);
   });
 }
 
-form.addEventListener("submit", event => {
-  event.preventDefault();
+async function loadEmployees() {
+  if (tableBody) {
+    tableBody.textContent = "Loading staff records...";
+  }
 
-  employees.push({
-    first: document.getElementById("firstName").value.trim(),
-    last: document.getElementById("lastName").value.trim(),
-    title: document.getElementById("jobTitle").value.trim(),
-    email: document.getElementById("email").value.trim(),
-    phone: document.getElementById("phone").value.trim(),
-    location: document.getElementById("location").value.trim()
-  });
+  try {
+    const response = await fetch(`${API_BASE}/api/staff`);
 
-  form.reset();
-  renderEmployees();
-  message.textContent = "Employee added successfully.";
+    if (!response.ok) {
+      throw new Error(`Server error: ${response.status}`);
+    }
+
+    employees = await response.json();
+    renderEmployees();
+  } catch (error) {
+    console.error("Staff records load nahi huay:", error);
+
+    if (tableBody) {
+      tableBody.textContent =
+        "Records load nahi huay. Backend aur API URL check karo.";
+    }
+  }
+}
+
+[firstNameInput, lastNameInput, locationInput].forEach(input => {
+  input?.addEventListener("input", renderEmployees);
 });
 
-Object.values(fields).forEach(input => {
-  input.addEventListener("input", renderEmployees);
-});
+loadEmployees();
