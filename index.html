@@ -1,0 +1,62 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bank Admin Portal</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <header>
+    <h1>Bank Admin Portal</h1>
+    <p>Employee Management System</p>
+  </header>
+
+  <main>
+    <section class="panel">
+      <h2>Staff Directory</h2>
+
+      <div class="search">
+        <input id="firstSearch" placeholder="Search first name">
+        <input id="lastSearch" placeholder="Search last name">
+        <input id="locationSearch" placeholder="Search branch location">
+      </div>
+
+      <h3>Add New Employee</h3>
+
+      <form id="employeeForm">
+        <input id="firstName" placeholder="First name" required>
+        <input id="lastName" placeholder="Last name" required>
+        <input id="jobTitle" placeholder="Working title" required>
+        <input id="email" type="email" placeholder="Email address" required>
+        <input id="phone" placeholder="Contact number">
+        <input id="location" placeholder="Branch location" required>
+
+        <button type="submit">Add Employee</button>
+      </form>
+
+      <p id="message" role="status"></p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Working Title</th>
+              <th>Email</th>
+              <th>Contact</th>
+              <th>Branch</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="employeeList"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>
