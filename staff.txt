@@ -1,0 +1,2 @@
+1001|Ayesha|Khan|Branch Manager|0300-0000000|ayesha.demo@example.com|Lahore Main Branch|1|1|1|1
+1002|Hamza|Ali|Customer Service Officer|0300-0000001|hamza.demo@example.com|Karachi Branch|1|0|0|0
