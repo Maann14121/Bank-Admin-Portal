@@ -1,6 +1,6 @@
 
-const API_BASE = "https://supernatural-spider-p79g9gq7jg9jc6q6p-8080.app.github.dev".replace(/\/+$/, "");
 
+const API_BASE = "https://supernatural-spider-p79g9gq7jg9jc6q6p-8080.app.github.dev";
 const employeeList = document.getElementById("employeeList");
 const message = document.getElementById("message");
 
@@ -53,7 +53,8 @@ async function loadEmployees() {
   try {
     message.textContent = "Loading staff...";
 
-    const response = await fetch(`${API_BASE}/api/staff`);
+    
+const response = await fetch(`${API_BASE.replace(/\/+$/, "")}/api/staff`);
 
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
