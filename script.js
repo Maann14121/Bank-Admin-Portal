@@ -1,12 +1,13 @@
-const API_BASE = "https://supernatural-spider-p79g9gq7jg9jc6q6p-8080.app.github.dev";
 
-let employees = [];
+const API_BASE = "https://supernatural-spider-p79g9gq7jg9jc6q6p-8080.app.github.dev";
 
 const employeeList = document.getElementById("employeeList");
 const message = document.getElementById("message");
 const firstSearch = document.getElementById("firstSearch");
 const lastSearch = document.getElementById("lastSearch");
 const locationSearch = document.getElementById("locationSearch");
+
+let employees = [];
 
 function escapeHTML(value) {
   return String(value ?? "").replace(/[&<>"']/g, c => ({
@@ -48,10 +49,7 @@ async function loadEmployees() {
     message.textContent = "Loading staff...";
 
     const response = await fetch(`${API_BASE}/api/staff`);
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
     employees = await response.json();
     renderEmployees();
