@@ -1,18 +1,21 @@
 
 const API_BASE = "https://supernatural-spider-p79g9gq7jg9jc6q6p-8080.app.github.dev";
 
+let employees = [];
+
 const employeeList = document.getElementById("employeeList");
 const message = document.getElementById("message");
 const firstSearch = document.getElementById("firstSearch");
 const lastSearch = document.getElementById("lastSearch");
 const locationSearch = document.getElementById("locationSearch");
 
-let employees = [];
-
 function escapeHTML(value) {
   return String(value ?? "").replace(/[&<>"']/g, c => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;",
-    '"': "&quot;", "'": "&#39;"
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
   })[c]);
 }
 
@@ -36,7 +39,8 @@ function renderEmployees() {
           <td>${escapeHTML(e.phone)}</td>
           <td>${escapeHTML(e.branch)}</td>
           <td>—</td>
-        </tr>`).join("")
+        </tr>
+      `).join("")
     : '<tr><td colspan="6">No employees found.</td></tr>';
 }
 
@@ -59,8 +63,8 @@ async function loadEmployees() {
   }
 }
 
-[firstSearch, lastSearch, locationSearch].forEach(input =>
-  input.addEventListener("input", renderEmployees)
-);
+[firstSearch, lastSearch, locationSearch].forEach(input => {
+  input.addEventListener("input", renderEmployees);
+});
 
 loadEmployees();
