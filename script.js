@@ -1,9 +1,8 @@
 
-
 const API_BASE = "https://supernatural-spider-p79g9gq7jg9jc6q6p-8080.app.github.dev";
+
 const employeeList = document.getElementById("employeeList");
 const message = document.getElementById("message");
-
 const firstSearch = document.getElementById("firstSearch");
 const lastSearch = document.getElementById("lastSearch");
 const locationSearch = document.getElementById("locationSearch");
@@ -11,13 +10,10 @@ const locationSearch = document.getElementById("locationSearch");
 let employees = [];
 
 function escapeHTML(value) {
-  return String(value ?? "").replace(/[&<>"']/g, char => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;"
-  })[char]);
+  return String(value ?? "").replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;",
+    '"': "&quot;", "'": "&#39;"
+  })[c]);
 }
 
 function renderEmployees() {
@@ -25,48 +21,36 @@ function renderEmployees() {
   const last = lastSearch.value.trim().toLowerCase();
   const location = locationSearch.value.trim().toLowerCase();
 
-  const filtered = employees.filter(employee =>
-    String(employee.firstName ?? "").toLowerCase().includes(first) &&
-    String(employee.lastName ?? "").toLowerCase().includes(last) &&
-    String(employee.branch ?? "").toLowerCase().includes(location)
+  const filtered = employees.filter(e =>
+    String(e.firstName ?? "").toLowerCase().includes(first) &&
+    String(e.lastName ?? "").toLowerCase().includes(last) &&
+    String(e.branch ?? "").toLowerCase().includes(location)
   );
 
-  if (filtered.length === 0) {
-    employeeList.innerHTML =
-      '<tr><td colspan="6">No employees found.</td></tr>';
-    return;
-  }
-
-  employeeList.innerHTML = filtered.map(employee => `
-    <tr>
-      <td>${escapeHTML(employee.firstName)} ${escapeHTML(employee.lastName)}</td>
-      <td>${escapeHTML(employee.title)}</td>
-      <td>${escapeHTML(employee.email)}</td>
-      <td>${escapeHTML(employee.phone)}</td>
-      <td>${escapeHTML(employee.branch)}</td>
-      <td>—</td>
-    </tr>
-  `).join("");
+  employeeList.innerHTML = filtered.length
+    ? filtered.map(e => `
+        <tr>
+          <td>${escapeHTML(e.firstName)} ${escapeHTML(e.lastName)}</td>
+          <td>${escapeHTML(e.title)}</td>
+          <td>${escapeHTML(e.email)}</td>
+          <td>${escapeHTML(e.phone)}</td>
+          <td>${escapeHTML(e.branch)}</td>
+          <td>—</td>
+        </tr>`).join("")
+    : '<tr><td colspan="6">No employees found.</td></tr>';
 }
 
 async function loadEmployees() {
   try {
     message.textContent = "Loading staff...";
 
-    
-const response = await fetch(`${API_BASE.replace(/\/+$/, "")}/api/staff`);
+    const response = await fetch(`${API_BASE}/api/staff`);
 
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
 
-    const data = await response.json();
-
-    if (!Array.isArray(data)) {
-      throw new Error("API response is not a staff list");
-    }
-
-    employees = data;
+    employees = await response.json();
     renderEmployees();
     message.textContent = `Loaded ${employees.length} employees.`;
   } catch (error) {
@@ -75,8 +59,8 @@ const response = await fetch(`${API_BASE.replace(/\/+$/, "")}/api/staff`);
   }
 }
 
-[firstSearch, lastSearch, locationSearch].forEach(input => {
-  input.addEventListener("input", renderEmployees);
-});
+[firstSearch, lastSearch, locationSearch].forEach(input =>
+  input.addEventListener("input", renderEmployees)
+);
 
 loadEmployees();
