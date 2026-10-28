@@ -22,6 +22,7 @@ function escapeHTML(value) {
   })[c]);
 }
 
+// Show employees and apply all three search filters
 function renderEmployees() {
   const first = firstSearch.value.trim().toLowerCase();
   const last = lastSearch.value.trim().toLowerCase();
@@ -54,6 +55,7 @@ function renderEmployees() {
     : '<tr><td colspan="6">No employees found.</td></tr>';
 }
 
+// Get the latest staff list from the C++ backend
 async function loadEmployees() {
   try {
     message.textContent = "Loading staff...";
@@ -69,8 +71,7 @@ async function loadEmployees() {
     message.textContent = `Loaded ${employees.length} employees.`;
   } catch (error) {
     console.error("Staff loading error:", error);
-    message.textContent =
-      `Could not load staff: ${error.message}`;
+    message.textContent = `Could not load staff: ${error.message}`;
   }
 }
 
@@ -111,6 +112,7 @@ employeeForm.addEventListener("submit", async event => {
 
     employeeForm.reset();
     await loadEmployees();
+
     message.textContent =
       `Employee ${result.firstName} ${result.lastName} added successfully.`;
   } catch (error) {
@@ -121,7 +123,7 @@ employeeForm.addEventListener("submit", async event => {
   }
 });
 
-// Delete employee
+// Remove employee
 employeeList.addEventListener("click", async event => {
   const button = event.target.closest(".delete-employee");
 
@@ -154,19 +156,19 @@ employeeList.addEventListener("click", async event => {
     }
 
     await loadEmployees();
+
     message.textContent =
       `${employee.firstName} ${employee.lastName} deleted successfully.`;
   } catch (error) {
     console.error("Delete employee error:", error);
-    message.textContent =
-      `Could not delete employee: ${error.message}`;
+    message.textContent = `Could not delete employee: ${error.message}`;
   }
 });
 
-// Search filters
+// Search by first name, last name, and branch
 [firstSearch, lastSearch, locationSearch].forEach(input => {
   input.addEventListener("input", renderEmployees);
 });
 
-// Load initial staff data
+// Start the page
 loadEmployees();
