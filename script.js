@@ -183,3 +183,127 @@ employeeList.addEventListener("click", async event => {
 
 // INITIAL LOAD
 loadEmployees();
+
+const accessPermissionFields = [
+  "canViewCustomers",
+  "canManageAccounts",
+  "canViewReports",
+  "canManageStaff",
+  "canAddEmployees",
+  "canDeleteEmployees"
+];
+
+const accessEmployeeSelect = document.getElementById("accessEmployee");
+const permissionsForm = document.getElementById("permissionsForm");
+const permissionsMessage = document.getElementById("permissionsMessage");
+
+async function loadAccessEmployees() {
+  if (!accessEmployeeSelect) return;
+
+  try {
+    const response = await fetch(`${API_BASE}/api/staff`);
+    if (!response.ok) throw new Error("Employees load nahi huay");
+
+    const employees = await response.json();
+    accessEmployeeSelect.innerHTML =
+      '<option value="">Select an employee</option>';
+
+    employees.forEach((employee) => {
+      const option = document.createElement("option");
+      option.value = employee.id;
+      option.textContent =
+        `${employee.firstName} ${employee.lastName} (${employee.title})`;
+      accessEmployeeSelect.appendChild(option);
+    });
+  } catch (error) {
+    console.error(error);
+    permissionsMessage.textContent =
+      "Employees load nahi huay. Backend server check karo.";
+  }
+}
+
+if (accessEmployeeSelect) {
+  accessEmployeeSelect.addEventListener("change", async () => {
+    const employeeId = accessEmployeeSelect.value;
+
+    accessPermissionFields.forEach((field) => {
+      document.getElementById(field).checked = false;
+    });
+
+    if (!employeeId) {
+      permissionsMessage.textContent = "";
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_BASE}/api/staff`);
+
+      if (!response.ok) throw new Error("Staff data load nahi hua");
+
+      const employees = await response.json();
+      const employee = employees.find(
+        (item) => String(item.id) === String(employeeId)
+      );
+
+      if (!employee) throw new Error("Employee nahi mila");
+
+      accessPermissionFields.forEach((field) => {
+        document.getElementById(field).checked =
+          employee[field] === true ||
+          employee[field] === 1 ||
+          employee[field] === "1";
+      });
+
+      permissionsMessage.textContent = "Permissions load ho gayi hain.";
+    } catch (error) {
+      console.error(error);
+      permissionsMessage.textContent = "Permissions load nahi ho sakin.";
+    }
+  });
+}
+
+if (permissionsForm) {
+  permissionsForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    const employeeId = accessEmployeeSelect.value;
+
+    if (!employeeId) {
+      permissionsMessage.textContent = "Pehle employee select karo.";
+      return;
+    }
+
+    const permissions = {};
+
+    accessPermissionFields.forEach((field) => {
+      permissions[field] = document.getElementById(field).checked ? "1" : "0";
+    });
+
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/staff/${encodeURIComponent(employeeId)}/permissions`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: new URLSearchParams(permissions).toString()
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || "Permissions save nahi huin");
+      }
+
+      permissionsMessage.textContent = "Permissions successfully save ho gayi hain.";
+    } catch (error) {
+      console.error(error);
+      permissionsMessage.textContent =
+        error.message || "Permissions save nahi huin.";
+    }
+  });
+}
+
+loadAccessEmployees();

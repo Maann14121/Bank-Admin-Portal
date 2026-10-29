@@ -59,4 +59,49 @@
 
   <script src="script.js"></script>
 </body>
+<!-- Staff Access & Permissions -->
+<section id="staffAccessSection">
+  <h2>Staff Access & Permissions</h2>
+  <p>Employee ki permissions dekhne aur update karne ke liye:</p>
+
+  <label for="accessEmployee">Select Employee:</label>
+  <select id="accessEmployee" required>
+    <option value="">Select an employee</option>
+  </select>
+
+  <form id="permissionsForm">
+    <label>
+      <input type="checkbox" id="canViewCustomers" />
+      View Customers
+    </label>
+
+    <label>
+      <input type="checkbox" id="canManageAccounts" />
+      Manage Accounts
+    </label>
+
+    <label>
+      <input type="checkbox" id="canViewReports" />
+      View Reports
+    </label>
+
+    <label>
+      <input type="checkbox" id="canManageStaff" />
+      Manage Staff
+    </label>
+
+    <label>
+      <input type="checkbox" id="canAddEmployees" />
+      Add Employees
+    </label>
+
+    <label>
+      <input type="checkbox" id="canDeleteEmployees" />
+      Delete Employees
+    </label>
+
+    <button type="submit">Save Permissions</button>
+    <p id="permissionsMessage"></p>
+  </form>
+</section>
 </html>
