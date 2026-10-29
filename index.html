@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6,9 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Bank Admin Portal</title>
   <link rel="stylesheet" href="style.css">
+  <style>
+    .panel { margin: 20px auto; max-width: 1100px; }
+    .customer-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+    .customer-details { padding: 16px; border: 1px solid #d1d5db; border-radius: 10px; margin-top: 12px; }
+    .status-active { color: #15803d; font-weight: 700; }
+    .status-inactive { color: #dc2626; font-weight: 700; }
+    .muted { color: #6b7280; }
+    .panel input, .panel select, .panel button { margin: 5px 0; }
+    .panel button { cursor: pointer; }
+    #customerMessage, #message, #permissionsMessage { min-height: 1.3em; }
+  </style>
 </head>
 <body>
-
   <header>
     <h1>Bank Admin Portal</h1>
     <p>Employee Management System</p>
@@ -17,15 +26,13 @@
   <main>
     <section class="panel">
       <h2>Staff Directory</h2>
-
       <div class="search">
-        <input id="firstSearch" placeholder="Search first name">
-        <input id="lastSearch" placeholder="Search last name">
-        <input id="locationSearch" placeholder="Search branch location">
+        <input id="firstSearch" placeholder="Search first name" aria-label="Search first name">
+        <input id="lastSearch" placeholder="Search last name" aria-label="Search last name">
+        <input id="locationSearch" placeholder="Search branch location" aria-label="Search branch location">
       </div>
 
       <h3>Add New Employee</h3>
-
       <form id="employeeForm">
         <input id="firstName" placeholder="First name" required>
         <input id="lastName" placeholder="Last name" required>
@@ -33,75 +40,64 @@
         <input id="email" type="email" placeholder="Email address" required>
         <input id="phone" placeholder="Contact number">
         <input id="location" placeholder="Branch location" required>
-
         <button type="submit">Add Employee</button>
       </form>
-
-      <p id="message" role="status"></p>
+      <p id="message" role="status" aria-live="polite"></p>
 
       <div class="table-wrap">
         <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Working Title</th>
-              <th>Email</th>
-              <th>Contact</th>
-              <th>Branch</th>
-              <th>Action</th>
-            </tr>
-          </thead>
+          <thead><tr><th>First Name</th><th>Last Name</th><th>Working Title</th><th>Email</th><th>Contact</th><th>Branch</th><th>Access</th><th>Action</th></tr></thead>
           <tbody id="employeeList"></tbody>
         </table>
       </div>
     </section>
-  </main>
 
+    <section id="staffAccessSection" class="panel">
+      <h2>Staff Access &amp; Permissions</h2>
+      <p>Employee ki permissions dekhne aur update karne ke liye:</p>
+      <label for="accessEmployee">Select Employee:</label>
+      <select id="accessEmployee" required><option value="">Select an employee</option></select>
+      <form id="permissionsForm">
+        <div class="customer-grid">
+          <label><input type="checkbox" id="canViewCustomers"> View Customers</label>
+          <label><input type="checkbox" id="canManageAccounts"> Manage Accounts</label>
+          <label><input type="checkbox" id="canViewReports"> View Reports</label>
+          <label><input type="checkbox" id="canManageStaff"> Manage Staff</label>
+          <label><input type="checkbox" id="canAddEmployees"> Add Employees</label>
+          <label><input type="checkbox" id="canDeleteEmployees"> Delete Employees</label>
+        </div>
+        <button type="submit" id="savePermissions">Save Permissions</button>
+        <p id="permissionsMessage" role="status"></p>
+      </form>
+    </section>
+
+    <section id="customerSection" class="panel">
+      <h2>Bank Customers / Service Users</h2>
+      <p>Customer ka CNIC enter karke account details dekhein. Demo records sirf testing ke liye hain.</p>
+      <form id="customerSearchForm">
+        <label for="customerCnic">Search customer by CNIC</label><br>
+        <input id="customerCnic" placeholder="00000-0000001-0" required>
+        <button type="submit">Search Customer</button>
+      </form>
+      <p id="customerMessage" role="status" aria-live="polite"></p>
+      <div id="customerResult"><p class="muted">CNIC se customer search karein.</p></div>
+
+      <hr>
+      <h3>Add Customer (Demo / Coursework)</h3>
+      <form id="customerForm" class="customer-grid">
+        <input id="newCustomerCnic" placeholder="CNIC e.g. 00000-0000003-0" required>
+        <input id="customerFullName" placeholder="Customer full name" required>
+        <select id="accountType" required>
+          <option value="">Select account type</option>
+          <option value="Savings">Savings</option>
+          <option value="Current">Current</option>
+        </select>
+        <input id="accountNumber" placeholder="Account number" required>
+        <input id="customerBalance" type="number" min="0" step="0.01" placeholder="Balance (PKR)" required>
+        <button type="submit">Add Customer</button>
+      </form>
+    </section>
+  </main>
   <script src="script.js"></script>
 </body>
-<!-- Staff Access & Permissions -->
-<section id="staffAccessSection">
-  <h2>Staff Access & Permissions</h2>
-  <p>Employee ki permissions dekhne aur update karne ke liye:</p>
-
-  <label for="accessEmployee">Select Employee:</label>
-  <select id="accessEmployee" required>
-    <option value="">Select an employee</option>
-  </select>
-
-  <form id="permissionsForm">
-    <label>
-      <input type="checkbox" id="canViewCustomers" />
-      View Customers
-    </label>
-
-    <label>
-      <input type="checkbox" id="canManageAccounts" />
-      Manage Accounts
-    </label>
-
-    <label>
-      <input type="checkbox" id="canViewReports" />
-      View Reports
-    </label>
-
-    <label>
-      <input type="checkbox" id="canManageStaff" />
-      Manage Staff
-    </label>
-
-    <label>
-      <input type="checkbox" id="canAddEmployees" />
-      Add Employees
-    </label>
-
-    <label>
-      <input type="checkbox" id="canDeleteEmployees" />
-      Delete Employees
-    </label>
-
-    <button type="submit">Save Permissions</button>
-    <p id="permissionsMessage"></p>
-  </form>
-</section>
 </html>

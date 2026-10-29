@@ -13,6 +13,7 @@ using namespace httplib;
 using namespace std;
 
 const string STAFF_FILE = "staff.txt";
+const string CUSTOMERS_FILE = "customers.txt";
 
 struct Employee {
     string id;
@@ -59,6 +60,79 @@ vector<string> splitLine(const string& line) {
     }
 
     return parts;
+}
+
+
+struct Customer {
+    string id, cnic, fullName, accountType, accountNumber, balance, active;
+};
+
+bool readCustomers(vector<Customer>& customers) {
+    customers.clear();
+    ifstream file(CUSTOMERS_FILE);
+    if (!file.is_open()) {
+        customers.push_back({"1", "00000-0000001-0", "Demo Customer One", "Savings", "DEMO100001", "25000.00", "1"});
+        customers.push_back({"2", "00000-0000002-0", "Demo Customer Two", "Current", "DEMO100002", "8400.50", "0"});
+        return true;
+    }
+    string line;
+    while (getline(file, line)) {
+        vector<string> p = splitLine(line);
+        if (p.size() != 7) continue;
+        customers.push_back({p[0], p[1], p[2], p[3], p[4], p[5], p[6]});
+    }
+    return true;
+}
+
+bool saveCustomers(const vector<Customer>& customers) {
+    const string tempFile = CUSTOMERS_FILE + ".tmp";
+    {
+        ofstream file(tempFile, ios::trunc);
+        if (!file.is_open()) return false;
+        for (const Customer& c : customers) {
+            file << c.id << '|' << c.cnic << '|' << c.fullName << '|'
+                 << c.accountType << '|' << c.accountNumber << '|'
+                 << c.balance << '|' << c.active << '\n';
+        }
+        if (!file.good()) {
+            file.close();
+            remove(tempFile.c_str());
+            return false;
+        }
+    }
+    if (rename(tempFile.c_str(), CUSTOMERS_FILE.c_str()) != 0) {
+        remove(tempFile.c_str());
+        return false;
+    }
+    return true;
+}
+
+string customerToJson(const Customer& c) {
+    return "{"
+        "\"id\":" + c.id + ","
+        "\"cnic\":\"" + jsonEscape(c.cnic) + "\","
+        "\"fullName\":\"" + jsonEscape(c.fullName) + "\","
+        "\"accountType\":\"" + jsonEscape(c.accountType) + "\","
+        "\"accountNumber\":\"" + jsonEscape(c.accountNumber) + "\","
+        "\"balance\":" + c.balance + ","
+        "\"active\":" + string(c.active == "1" ? "true" : "false") +
+    "}";
+}
+
+string customersToJson(const vector<Customer>& customers) {
+    string json = "[";
+    for (size_t i = 0; i < customers.size(); ++i) {
+        if (i) json += ",";
+        json += customerToJson(customers[i]);
+    }
+    json += "]";
+    return json;
+}
+
+bool validCustomerField(const string& value) {
+    return value.find('|') == string::npos &&
+           value.find('\n') == string::npos &&
+           value.find('\r') == string::npos;
 }
 
 bool validField(const string& value) {
@@ -454,6 +528,109 @@ int main() {
                 R"({"success":true,"message":"Employee deleted successfully."})",
                 "application/json"
             );
+        }
+    );
+
+
+    // List customers; optional exact CNIC lookup
+    server.Get("/api/customers",
+        [](const Request& req, Response& res) {
+            vector<Customer> customers;
+            readCustomers(customers);
+            if (req.has_param("cnic")) {
+                const string cnic = req.get_param_value("cnic");
+                vector<Customer> matches;
+                for (const Customer& c : customers) if (c.cnic == cnic) matches.push_back(c);
+                res.set_content(customersToJson(matches), "application/json");
+                return;
+            }
+            res.set_content(customersToJson(customers), "application/json");
+        }
+    );
+
+    // Add customer (coursework/demo use)
+    server.Post("/api/customers",
+        [](const Request& req, Response& res) {
+            Customer c;
+            if (!getFormValue(req, "cnic", c.cnic) ||
+                !getFormValue(req, "fullName", c.fullName) ||
+                !getFormValue(req, "accountType", c.accountType) ||
+                !getFormValue(req, "accountNumber", c.accountNumber) ||
+                !getFormValue(req, "balance", c.balance)) {
+                res.status = 400;
+                res.set_content(R"({"error":"Please fill all customer fields."})", "application/json");
+                return;
+            }
+            if (c.cnic.empty() || c.fullName.empty() || c.accountType.empty() ||
+                c.accountNumber.empty() || c.balance.empty() ||
+                !validCustomerField(c.cnic) || !validCustomerField(c.fullName) ||
+                !validCustomerField(c.accountType) || !validCustomerField(c.accountNumber) ||
+                !validCustomerField(c.balance)) {
+                res.status = 400;
+                res.set_content(R"({"error":"Customer fields are invalid or incomplete."})", "application/json");
+                return;
+            }
+            try {
+                size_t used = 0;
+                double amount = stod(c.balance, &used);
+                if (used != c.balance.size() || amount < 0) throw invalid_argument("balance");
+            } catch (...) {
+                res.status = 400;
+                res.set_content(R"({"error":"Balance must be a non-negative number."})", "application/json");
+                return;
+            }
+            vector<Customer> customers;
+            readCustomers(customers);
+            for (const Customer& existing : customers) {
+                if (existing.cnic == c.cnic || existing.accountNumber == c.accountNumber) {
+                    res.status = 409;
+                    res.set_content(R"({"error":"CNIC or account number already exists."})", "application/json");
+                    return;
+                }
+            }
+            int nextId = 1;
+            for (const Customer& existing : customers) {
+                try { nextId = max(nextId, stoi(existing.id) + 1); } catch (...) {}
+            }
+            c.id = to_string(nextId);
+            c.active = "1";
+            customers.push_back(c);
+            if (!saveCustomers(customers)) {
+                res.status = 500;
+                res.set_content(R"({"error":"Could not save customers.txt."})", "application/json");
+                return;
+            }
+            res.status = 201;
+            res.set_content(customerToJson(c), "application/json");
+        }
+    );
+
+    // Activate / deactivate account
+    server.Post(R"(/api/customers/(\d+)/status)",
+        [](const Request& req, Response& res) {
+            const string id = req.matches[1].str();
+            string active;
+            if (!getFormValue(req, "active", active) || (active != "0" && active != "1")) {
+                res.status = 400;
+                res.set_content(R"({"error":"active must be 0 or 1."})", "application/json");
+                return;
+            }
+            vector<Customer> customers;
+            readCustomers(customers);
+            auto it = find_if(customers.begin(), customers.end(),
+                [&id](const Customer& c) { return c.id == id; });
+            if (it == customers.end()) {
+                res.status = 404;
+                res.set_content(R"({"error":"Customer not found."})", "application/json");
+                return;
+            }
+            it->active = active;
+            if (!saveCustomers(customers)) {
+                res.status = 500;
+                res.set_content(R"({"error":"Could not save customer status."})", "application/json");
+                return;
+            }
+            res.set_content(customerToJson(*it), "application/json");
         }
     );
 
