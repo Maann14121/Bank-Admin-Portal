@@ -2,6 +2,7 @@
 const API_BASE =
   "https://supernatural-spider-p79g9gq7jg9jc6q6p-8080.app.github.dev";
 
+// Existing page elements
 const employeeList = document.getElementById("employeeList");
 const message = document.getElementById("message");
 const employeeForm = document.getElementById("employeeForm");
@@ -10,7 +11,25 @@ const firstSearch = document.getElementById("firstSearch");
 const lastSearch = document.getElementById("lastSearch");
 const locationSearch = document.getElementById("locationSearch");
 
+// Access and permissions elements
+const accessEmployeeSelect = document.getElementById("accessEmployee");
+const permissionsForm = document.getElementById("permissionsForm");
+const permissionsMessage = document.getElementById("permissionsMessage");
+
+const accessPermissionFields = [
+  "canViewCustomers",
+  "canManageAccounts",
+  "canViewReports",
+  "canManageStaff",
+  "canAddEmployees",
+  "canDeleteEmployees"
+];
+
 let employees = [];
+
+function showMessage(element, text) {
+  if (element) element.textContent = text;
+}
 
 function escapeHTML(value) {
   return String(value ?? "").replace(/[&<>"']/g, character => ({
@@ -22,10 +41,13 @@ function escapeHTML(value) {
   })[character]);
 }
 
+// Render employee directory and apply search filters
 function renderEmployees() {
-  const first = firstSearch.value.trim().toLowerCase();
-  const last = lastSearch.value.trim().toLowerCase();
-  const location = locationSearch.value.trim().toLowerCase();
+  if (!employeeList) return;
+
+  const first = firstSearch?.value.trim().toLowerCase() || "";
+  const last = lastSearch?.value.trim().toLowerCase() || "";
+  const location = locationSearch?.value.trim().toLowerCase() || "";
 
   const filtered = employees.filter(employee =>
     String(employee.firstName ?? "").toLowerCase().includes(first) &&
@@ -47,8 +69,7 @@ function renderEmployees() {
       <td>${escapeHTML(employee.phone)}</td>
       <td>${escapeHTML(employee.branch)}</td>
       <td>
-        <button
-          type="button"
+        <button type="button"
           class="delete-employee"
           data-id="${escapeHTML(employee.id)}">
           Delete
@@ -58,9 +79,45 @@ function renderEmployees() {
   `).join("");
 }
 
+// Populate the employee dropdown from the API data
+function renderAccessEmployees() {
+  if (!accessEmployeeSelect) {
+    console.error("Dropdown #accessEmployee HTML mein nahi mila.");
+    return;
+  }
+
+  const selectedId = accessEmployeeSelect.value;
+
+  accessEmployeeSelect.replaceChildren();
+
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "Select an employee";
+  accessEmployeeSelect.appendChild(placeholder);
+
+  employees.forEach(employee => {
+    const option = document.createElement("option");
+    option.value = String(employee.id);
+    option.textContent =
+      `${employee.firstName} ${employee.lastName} (${employee.title})`;
+
+    accessEmployeeSelect.appendChild(option);
+  });
+
+  if (employees.some(employee => String(employee.id) === selectedId)) {
+    accessEmployeeSelect.value = selectedId;
+  }
+
+  console.log(
+    "Access dropdown employees:",
+    accessEmployeeSelect.options.length - 1
+  );
+}
+
+// Load employee data once and update both sections
 async function loadEmployees() {
   try {
-    message.textContent = "Loading employees...";
+    showMessage(message, "Loading employees...");
 
     const response = await fetch(`${API_BASE}/api/staff`);
 
@@ -75,217 +132,220 @@ async function loadEmployees() {
     }
 
     employees = data;
+
     renderEmployees();
-    message.textContent = `${employees.length} employees loaded.`;
+    renderAccessEmployees();
+
+    showMessage(message, `${employees.length} employees loaded.`);
   } catch (error) {
     console.error("Load employees error:", error);
-    message.textContent =
-      `Could not load employees: ${error.message}`;
+    showMessage(message, `Could not load employees: ${error.message}`);
+    showMessage(
+      permissionsMessage,
+      `Employees load nahi huay: ${error.message}`
+    );
   }
 }
 
 // ADD EMPLOYEE
-employeeForm.addEventListener("submit", async event => {
-  event.preventDefault();
+if (employeeForm) {
+  employeeForm.addEventListener("submit", async event => {
+    event.preventDefault();
 
-  const submitButton =
-    employeeForm.querySelector('button[type="submit"]');
+    const submitButton =
+      employeeForm.querySelector('button[type="submit"]');
 
-  const formData = new URLSearchParams({
-    firstName: document.getElementById("firstName").value.trim(),
-    lastName: document.getElementById("lastName").value.trim(),
-    title: document.getElementById("jobTitle").value.trim(),
-    email: document.getElementById("email").value.trim(),
-    phone: document.getElementById("phone").value.trim(),
-    branch: document.getElementById("location").value.trim()
-  });
+    const firstName = document.getElementById("firstName");
+    const lastName = document.getElementById("lastName");
+    const jobTitle = document.getElementById("jobTitle");
+    const email = document.getElementById("email");
+    const phone = document.getElementById("phone");
+    const location = document.getElementById("location");
 
-  try {
-    submitButton.disabled = true;
-    message.textContent = "Saving employee...";
-
-    const response = await fetch(`${API_BASE}/api/staff`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded"
-      },
-      body: formData.toString()
-    });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(result.error || `HTTP ${response.status}`);
-    }
-
-    employeeForm.reset();
-    await loadEmployees();
-
-    message.textContent =
-      `Employee ${result.firstName ?? ""} ${result.lastName ?? ""} added successfully.`;
-  } catch (error) {
-    console.error("Add employee error:", error);
-    message.textContent =
-      `Could not add employee: ${error.message}`;
-  } finally {
-    submitButton.disabled = false;
-  }
-});
-
-// DELETE EMPLOYEE
-employeeList.addEventListener("click", async event => {
-  const button = event.target.closest(".delete-employee");
-
-  if (!button) return;
-
-  const id = button.dataset.id;
-  const employee = employees.find(
-    item => String(item.id) === String(id)
-  );
-
-  if (!employee) return;
-
-  const confirmed = confirm(
-    `Kya aap ${employee.firstName} ${employee.lastName} ko delete karna chahte hain?`
-  );
-
-  if (!confirmed) return;
-
-  try {
-    button.disabled = true;
-    message.textContent = "Deleting employee...";
-
-    const response = await fetch(
-      `${API_BASE}/api/staff/${encodeURIComponent(id)}`,
-      { method: "DELETE" }
-    );
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(result.error || `HTTP ${response.status}`);
-    }
-
-    await loadEmployees();
-    message.textContent =
-      `${employee.firstName} ${employee.lastName} deleted successfully.`;
-  } catch (error) {
-    console.error("Delete employee error:", error);
-    message.textContent =
-      `Could not delete employee: ${error.message}`;
-  }
-});
-
-// SEARCH BARS
-[firstSearch, lastSearch, locationSearch].forEach(input => {
-  input.addEventListener("input", renderEmployees);
-});
-
-// INITIAL LOAD
-loadEmployees();
-
-const accessPermissionFields = [
-  "canViewCustomers",
-  "canManageAccounts",
-  "canViewReports",
-  "canManageStaff",
-  "canAddEmployees",
-  "canDeleteEmployees"
-];
-
-const accessEmployeeSelect = document.getElementById("accessEmployee");
-const permissionsForm = document.getElementById("permissionsForm");
-const permissionsMessage = document.getElementById("permissionsMessage");
-
-async function loadAccessEmployees() {
-  if (!accessEmployeeSelect) return;
-
-  try {
-    const response = await fetch(`${API_BASE}/api/staff`);
-    if (!response.ok) throw new Error("Employees load nahi huay");
-
-    const employees = await response.json();
-    accessEmployeeSelect.innerHTML =
-      '<option value="">Select an employee</option>';
-
-    employees.forEach((employee) => {
-      const option = document.createElement("option");
-      option.value = employee.id;
-      option.textContent =
-        `${employee.firstName} ${employee.lastName} (${employee.title})`;
-      accessEmployeeSelect.appendChild(option);
-    });
-  } catch (error) {
-    console.error(error);
-    permissionsMessage.textContent =
-      "Employees load nahi huay. Backend server check karo.";
-  }
-}
-
-if (accessEmployeeSelect) {
-  accessEmployeeSelect.addEventListener("change", async () => {
-    const employeeId = accessEmployeeSelect.value;
-
-    accessPermissionFields.forEach((field) => {
-      document.getElementById(field).checked = false;
-    });
-
-    if (!employeeId) {
-      permissionsMessage.textContent = "";
+    if (!firstName || !lastName || !jobTitle || !email || !phone || !location) {
+      showMessage(message, "Employee form ke required fields nahi milay.");
       return;
     }
 
+    const formData = new URLSearchParams({
+      firstName: firstName.value.trim(),
+      lastName: lastName.value.trim(),
+      title: jobTitle.value.trim(),
+      email: email.value.trim(),
+      phone: phone.value.trim(),
+      branch: location.value.trim()
+    });
+
     try {
-      const response = await fetch(`${API_BASE}/api/staff`);
+      if (submitButton) submitButton.disabled = true;
+      showMessage(message, "Saving employee...");
 
-      if (!response.ok) throw new Error("Staff data load nahi hua");
-
-      const employees = await response.json();
-      const employee = employees.find(
-        (item) => String(item.id) === String(employeeId)
-      );
-
-      if (!employee) throw new Error("Employee nahi mila");
-
-      accessPermissionFields.forEach((field) => {
-        document.getElementById(field).checked =
-          employee[field] === true ||
-          employee[field] === 1 ||
-          employee[field] === "1";
+      const response = await fetch(`${API_BASE}/api/staff`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: formData.toString()
       });
 
-      permissionsMessage.textContent = "Permissions load ho gayi hain.";
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || `HTTP ${response.status}`);
+      }
+
+      employeeForm.reset();
+      await loadEmployees();
+
+      showMessage(
+        message,
+        `Employee ${result.firstName ?? ""} ${result.lastName ?? ""} added successfully.`
+      );
     } catch (error) {
-      console.error(error);
-      permissionsMessage.textContent = "Permissions load nahi ho sakin.";
+      console.error("Add employee error:", error);
+      showMessage(message, `Could not add employee: ${error.message}`);
+    } finally {
+      if (submitButton) submitButton.disabled = false;
     }
   });
 }
 
+// DELETE EMPLOYEE
+if (employeeList) {
+  employeeList.addEventListener("click", async event => {
+    const button = event.target.closest(".delete-employee");
+    if (!button) return;
+
+    const id = button.dataset.id;
+    const employee = employees.find(
+      item => String(item.id) === String(id)
+    );
+
+    if (!employee) return;
+
+    const confirmed = confirm(
+      `Kya aap ${employee.firstName} ${employee.lastName} ko delete karna chahte hain?`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      button.disabled = true;
+      showMessage(message, "Deleting employee...");
+
+      const response = await fetch(
+        `${API_BASE}/api/staff/${encodeURIComponent(id)}`,
+        { method: "DELETE" }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || `HTTP ${response.status}`);
+      }
+
+      await loadEmployees();
+
+      showMessage(
+        message,
+        `${employee.firstName} ${employee.lastName} deleted successfully.`
+      );
+    } catch (error) {
+      console.error("Delete employee error:", error);
+      showMessage(message, `Could not delete employee: ${error.message}`);
+    }
+  });
+}
+
+// SEARCH BARS
+[firstSearch, lastSearch, locationSearch].forEach(input => {
+  if (input) input.addEventListener("input", renderEmployees);
+});
+
+// Clear all permission checkboxes
+function clearPermissionCheckboxes() {
+  accessPermissionFields.forEach(field => {
+    const checkbox = document.getElementById(field);
+    if (checkbox) checkbox.checked = false;
+  });
+}
+
+// Select an employee and show their permissions
+if (accessEmployeeSelect) {
+  accessEmployeeSelect.addEventListener("change", () => {
+    const employee = employees.find(
+      item => String(item.id) === accessEmployeeSelect.value
+    );
+
+    clearPermissionCheckboxes();
+
+    if (!employee) {
+      showMessage(permissionsMessage, "");
+      return;
+    }
+
+    accessPermissionFields.forEach(field => {
+      const checkbox = document.getElementById(field);
+
+      if (!checkbox) {
+        console.error(`Missing permission checkbox: ${field}`);
+        return;
+      }
+
+      checkbox.checked =
+        employee[field] === true ||
+        employee[field] === 1 ||
+        employee[field] === "1";
+    });
+
+    showMessage(
+      permissionsMessage,
+      `Permissions loaded for ${employee.firstName} ${employee.lastName}.`
+    );
+  });
+}
+
+// SAVE PERMISSIONS
 if (permissionsForm) {
-  permissionsForm.addEventListener("submit", async (event) => {
+  permissionsForm.addEventListener("submit", async event => {
     event.preventDefault();
 
-    const employeeId = accessEmployeeSelect.value;
+    const employeeId = accessEmployeeSelect?.value;
 
     if (!employeeId) {
-      permissionsMessage.textContent = "Pehle employee select karo.";
+      showMessage(permissionsMessage, "Pehle employee select karo.");
       return;
     }
 
     const permissions = {};
 
-    accessPermissionFields.forEach((field) => {
-      permissions[field] = document.getElementById(field).checked ? "1" : "0";
-    });
+    for (const field of accessPermissionFields) {
+      const checkbox = document.getElementById(field);
+
+      if (!checkbox) {
+        showMessage(
+          permissionsMessage,
+          `HTML mein ${field} checkbox nahi mila.`
+        );
+        return;
+      }
+
+      permissions[field] = checkbox.checked ? "1" : "0";
+    }
+
+    const saveButton =
+      permissionsForm.querySelector('button[type="submit"]');
 
     try {
+      if (saveButton) saveButton.disabled = true;
+      showMessage(permissionsMessage, "Saving permissions...");
+
       const response = await fetch(
         `${API_BASE}/api/staff/${encodeURIComponent(employeeId)}/permissions`,
         {
           method: "POST",
           headers: {
-            "Content-Type": "application/json"
+            "Content-Type": "application/x-www-form-urlencoded"
           },
           body: new URLSearchParams(permissions).toString()
         }
@@ -294,16 +354,28 @@ if (permissionsForm) {
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.error || "Permissions save nahi huin");
+        throw new Error(result.error || `HTTP ${response.status}`);
       }
 
-      permissionsMessage.textContent = "Permissions successfully save ho gayi hain.";
+      await loadEmployees();
+
+      if (accessEmployeeSelect) {
+        accessEmployeeSelect.value = employeeId;
+        accessEmployeeSelect.dispatchEvent(new Event("change"));
+      }
+
+      showMessage(permissionsMessage, "Permissions successfully saved.");
     } catch (error) {
-      console.error(error);
-      permissionsMessage.textContent =
-        error.message || "Permissions save nahi huin.";
+      console.error("Save permissions error:", error);
+      showMessage(
+        permissionsMessage,
+        `Permissions save nahi huin: ${error.message}`
+      );
+    } finally {
+      if (saveButton) saveButton.disabled = false;
     }
   });
 }
 
-loadAccessEmployees();
+// Initial page load
+loadEmployees();
