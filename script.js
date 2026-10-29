@@ -486,20 +486,15 @@ async function saveEmployeePermissions() {
 }
 
 function setupPermissions() {
+  const permissionsForm = getElement("permissionsForm");
+  if (permissionsForm) permissionsForm.addEventListener("submit", event => { event.preventDefault(); saveEmployeePermissions(); });
+
   const dropdown = getElement("accessEmployee");
 
   if (dropdown) {
     dropdown.addEventListener("change", loadEmployeePermissions);
   }
 
-  const saveButton =
-    getElement("savePermissions") ||
-    getElement("saveAccess") ||
-    getElement("savePermissionsBtn");
-
-  if (saveButton) {
-    saveButton.addEventListener("click", saveEmployeePermissions);
-  }
 }
 
 async function checkBackendStatus() {
@@ -519,6 +514,7 @@ async function initializePortal() {
   setupSearch();
   setupEmployeeForm();
   setupPermissions();
+  setupCustomers();
 
   await checkBackendStatus();
   await loadEmployees();
@@ -532,4 +528,117 @@ if (document.readyState === "loading") {
   });
 } else {
   initializePortal();
+}
+
+
+// ---------------- CUSTOMER / SERVICE USER MANAGEMENT ----------------
+function customerMessage(text, isError = false) {
+  const el = getElement("customerMessage");
+  if (!el) return;
+  el.textContent = text;
+  el.style.color = isError ? "#dc2626" : "#15803d";
+}
+
+function formatMoney(value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return String(value ?? "0");
+  return amount.toLocaleString("en-PK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function renderCustomer(customer) {
+  const result = getElement("customerResult");
+  if (!result) return;
+  if (!customer) {
+    result.innerHTML = '<p class="muted">CNIC se customer search karein.</p>';
+    return;
+  }
+
+  const active = customer.active === true || customer.active === 1 || customer.active === "1";
+  result.innerHTML = `
+    <div class="customer-details">
+      <h3>${escapeHtml(customer.fullName)}</h3>
+      <p><strong>CNIC:</strong> ${escapeHtml(customer.cnic)}</p>
+      <p><strong>Account Type:</strong> ${escapeHtml(customer.accountType)}</p>
+      <p><strong>Account Number:</strong> ${escapeHtml(customer.accountNumber)}</p>
+      <p><strong>Balance:</strong> Rs. ${formatMoney(customer.balance)}</p>
+      <p><strong>Status:</strong> <span class="${active ? "status-active" : "status-inactive"}">${active ? "Active" : "Inactive"}</span></p>
+      <button type="button" id="toggleCustomerStatus">${active ? "Deactivate Account" : "Activate Account"}</button>
+    </div>`;
+  getElement("toggleCustomerStatus")?.addEventListener("click", () => toggleCustomerStatus(customer.id, !active));
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, ch => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[ch]));
+}
+
+async function searchCustomer(event) {
+  if (event) event.preventDefault();
+  const cnic = getValue("customerCnic");
+  if (!cnic) {
+    customerMessage("Customer ka CNIC enter karein.", true);
+    return;
+  }
+  try {
+    const results = await apiRequest(`/api/customers?cnic=${encodeURIComponent(cnic)}`);
+    if (!Array.isArray(results) || results.length === 0) {
+      renderCustomer(null);
+      customerMessage("Is CNIC par customer nahi mila.", true);
+      return;
+    }
+    renderCustomer(results[0]);
+    customerMessage("Customer record mil gaya.");
+  } catch (error) {
+    customerMessage(`Search nahi ho saki: ${error.message}`, true);
+  }
+}
+
+async function toggleCustomerStatus(id, active) {
+  const body = new URLSearchParams({ active: active ? "1" : "0" });
+  try {
+    const updated = await apiRequest(`/api/customers/${encodeURIComponent(id)}/status`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString()
+    });
+    renderCustomer(updated);
+    customerMessage(`Account ${active ? "activate" : "deactivate"} ho gaya aur save ho gaya.`);
+  } catch (error) {
+    customerMessage(`Status update nahi hua: ${error.message}`, true);
+  }
+}
+
+async function addCustomer(event) {
+  if (event) event.preventDefault();
+  const cnic = getValue("newCustomerCnic");
+  const fullName = getValue("customerFullName");
+  const accountType = getValue("accountType");
+  const accountNumber = getValue("accountNumber");
+  const balance = getValue("customerBalance");
+
+  if (!cnic || !fullName || !accountType || !accountNumber || !balance) {
+    customerMessage("Customer ki tamam fields fill karein.", true);
+    return;
+  }
+
+  try {
+    const body = new URLSearchParams({ cnic, fullName, accountType, accountNumber, balance });
+    const created = await apiRequest("/api/customers", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString()
+    });
+    getElement("customerForm")?.reset();
+    getElement("customerCnic").value = created.cnic;
+    renderCustomer(created);
+    customerMessage("Customer successfully add ho gaya.");
+  } catch (error) {
+    customerMessage(`Customer add nahi hua: ${error.message}`, true);
+  }
+}
+
+function setupCustomers() {
+  getElement("customerSearchForm")?.addEventListener("submit", searchCustomer);
+  getElement("customerForm")?.addEventListener("submit", addCustomer);
 }
