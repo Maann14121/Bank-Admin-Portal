@@ -1,3 +1,4 @@
+
 #include "httplib.h"
 
 #include <algorithm>
@@ -97,7 +98,6 @@ bool readEmployees(vector<Employee>& employees) {
         e.canViewReports = p[9];
         e.canManageStaff = p[10];
 
-        // Older records get safe defaults for new permissions.
         e.canAddEmployees = p.size() == 13 ? p[11] : "0";
         e.canDeleteEmployees = p.size() == 13 ? p[12] : "0";
 
@@ -240,16 +240,7 @@ int main() {
             vector<Employee> employees;
             readEmployees(employees);
 
-            ifstream check(STAFF_FILE);
-            if (!check.is_open()) {
-                res.status = 404;
-                res.set_content(
-                    R"({"error":"staff.txt not found. Add an employee first."})",
-                    "application/json"
-                );
-                return;
-            }
-
+            // First-time setup: no staff.txt means an empty employee list.
             res.set_content(
                 employeesToJson(employees),
                 "application/json"
@@ -277,11 +268,10 @@ int main() {
             }
 
             if (e.firstName.empty() || e.lastName.empty() ||
-                e.title.empty() || e.email.empty() ||
-                e.branch.empty()) {
+                e.title.empty() || e.email.empty()) {
                 res.status = 400;
                 res.set_content(
-                    R"({"error":"First name, last name, title, email and branch are required."})",
+                    R"({"error":"First name, last name, title and email are required."})",
                     "application/json"
                 );
                 return;

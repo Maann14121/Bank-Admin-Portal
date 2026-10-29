@@ -1,17 +1,12 @@
 
 "use strict";
 
-// ==========================================
-// BANK ADMIN PORTAL - COMPLETE FRONTEND
-// ==========================================
+// BANK ADMIN PORTAL - FRONTEND
 
-const API_BASE =
-  "https://supernatural-spider-p79g9gq7jg9jc6q6p-8080.app.github.dev";
+const API_BASE = "https://supernatural-spider-p79g9gq7jg9jc6q6p-8080.app.github.dev";
 
-// Global employee data
 let employees = [];
 
-// Permission checkbox IDs
 const PERMISSION_IDS = [
   "canViewCustomers",
   "canManageAccounts",
@@ -20,10 +15,6 @@ const PERMISSION_IDS = [
   "canAddEmployees",
   "canDeleteEmployees"
 ];
-
-// ==========================================
-// HTML ELEMENT HELPERS
-// ==========================================
 
 function getElement(id) {
   return document.getElementById(id);
@@ -44,10 +35,6 @@ function showMessage(text, isError = false) {
     console.log(text);
   }
 }
-
-// ==========================================
-// API HELPER
-// ==========================================
 
 async function apiRequest(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -80,21 +67,9 @@ async function apiRequest(path, options = {}) {
   return data;
 }
 
-// ==========================================
-// NORMALIZE EMPLOYEE DATA
-// Supports common backend field names
-// ==========================================
-
 function normalizeEmployee(employee, index) {
-  const firstName =
-    employee.firstName ??
-    employee.first_name ??
-    "";
-
-  const lastName =
-    employee.lastName ??
-    employee.last_name ??
-    "";
+  const firstName = employee.firstName ?? employee.first_name ?? "";
+  const lastName = employee.lastName ?? employee.last_name ?? "";
 
   const fullName =
     employee.name ??
@@ -141,13 +116,16 @@ function normalizeEmployee(employee, index) {
       employee.branch_location ??
       "",
 
-    permissions: employee.permissions || {}
+    permissions: {
+      canViewCustomers: employee.permissions?.canViewCustomers ?? employee.canViewCustomers ?? false,
+      canManageAccounts: employee.permissions?.canManageAccounts ?? employee.canManageAccounts ?? false,
+      canViewReports: employee.permissions?.canViewReports ?? employee.canViewReports ?? false,
+      canManageStaff: employee.permissions?.canManageStaff ?? employee.canManageStaff ?? false,
+      canAddEmployees: employee.permissions?.canAddEmployees ?? employee.canAddEmployees ?? false,
+      canDeleteEmployees: employee.permissions?.canDeleteEmployees ?? employee.canDeleteEmployees ?? false
+    }
   };
 }
-
-// ==========================================
-// LOAD EMPLOYEES
-// ==========================================
 
 async function loadEmployees() {
   const employeeList = getElement("employeeList");
@@ -197,18 +175,11 @@ async function loadEmployees() {
   }
 }
 
-// ==========================================
-// RENDER EMPLOYEE TABLE
-// employeeList should be a table <tbody>
-// ==========================================
-
 function renderEmployees(list = employees) {
   const employeeList = getElement("employeeList");
 
   if (!employeeList) {
-    console.error(
-      'Table body "#employeeList" nahi mila. index.html mein tbody id check karein.'
-    );
+    console.error('Table body "#employeeList" nahi mila.');
     return;
   }
 
@@ -243,12 +214,12 @@ function renderEmployees(list = employees) {
       row.appendChild(cell);
     });
 
-    // Access button
     const accessCell = document.createElement("td");
     const accessButton = document.createElement("button");
 
     accessButton.type = "button";
     accessButton.textContent = "Manage Access";
+
     accessButton.addEventListener("click", () => {
       const dropdown = getElement("accessEmployee");
 
@@ -257,8 +228,9 @@ function renderEmployees(list = employees) {
         dropdown.dispatchEvent(new Event("change"));
       }
 
-      const accessSection = getElement("staffAccess") ||
-                            getElement("accessSection");
+      const accessSection =
+        getElement("staffAccess") ||
+        getElement("accessSection");
 
       if (accessSection) {
         accessSection.scrollIntoView({
@@ -271,7 +243,6 @@ function renderEmployees(list = employees) {
     accessCell.appendChild(accessButton);
     row.appendChild(accessCell);
 
-    // Delete button
     const deleteCell = document.createElement("td");
     const deleteButton = document.createElement("button");
 
@@ -289,11 +260,6 @@ function renderEmployees(list = employees) {
     employeeList.appendChild(row);
   });
 }
-
-// ==========================================
-// THREE SEARCH BARS
-// IDs: firstSearch, lastSearch, locationSearch
-// ==========================================
 
 function filterEmployees() {
   const first = getValue("firstSearch").toLowerCase();
@@ -323,22 +289,14 @@ function setupSearch() {
   });
 }
 
-// ==========================================
-// ADD EMPLOYEE
-// Form ID: employeeForm
-// ==========================================
-
 async function addEmployee(event) {
-  if (event) {
-    event.preventDefault();
-  }
+  if (event) event.preventDefault();
 
   const firstName = getValue("firstName");
   const lastName = getValue("lastName");
   const jobTitle = getValue("jobTitle");
   const email = getValue("email");
 
-  // Optional fields
   const phone =
     getValue("phone") ||
     getValue("contact") ||
@@ -360,48 +318,36 @@ async function addEmployee(event) {
   const submitButton = getElement("employeeForm")
     ?.querySelector('[type="submit"]');
 
-  if (submitButton) {
-    submitButton.disabled = true;
-  }
+  if (submitButton) submitButton.disabled = true;
 
   try {
-    const employeeData = {
+    const formData = new URLSearchParams({
       firstName,
       lastName,
-      name: `${firstName} ${lastName}`,
-      jobTitle,
       title: jobTitle,
       email,
-      phone,
-      contact: phone,
-      location,
-      branch: location
-    };
+      phone: phone || "",
+      branch: location || ""
+    });
 
     await apiRequest("/api/staff", {
       method: "POST",
-      body: JSON.stringify(employeeData)
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      body: formData.toString()
     });
 
     const form = getElement("employeeForm");
-
-    if (form) {
-      form.reset();
-    }
+    if (form) form.reset();
 
     await loadEmployees();
-    showMessage("Employee add request successful.");
+    showMessage("Employee successfully add ho gaya.");
   } catch (error) {
     console.error("Add employee failed:", error);
-
-    showMessage(
-      `Employee add nahi hua: ${error.message}. Backend POST /api/staff check karein.`,
-      true
-    );
+    showMessage(`Employee add nahi hua: ${error.message}`, true);
   } finally {
-    if (submitButton) {
-      submitButton.disabled = false;
-    }
+    if (submitButton) submitButton.disabled = false;
   }
 }
 
@@ -415,17 +361,9 @@ function setupEmployeeForm() {
   }
 }
 
-// ==========================================
-// DELETE EMPLOYEE
-// Backend must support DELETE /api/staff/{id}
-// ==========================================
-
 async function deleteEmployee(id, name = "this employee") {
   if (id === undefined || id === null || id === "") {
-    showMessage(
-      "Employee ID missing hai. Backend records mein unique ID zaroori hai.",
-      true
-    );
+    showMessage("Employee ID missing hai.", true);
     return;
   }
 
@@ -442,28 +380,15 @@ async function deleteEmployee(id, name = "this employee") {
     showMessage("Employee delete ho gaya.");
   } catch (error) {
     console.error("Delete employee failed:", error);
-
-    showMessage(
-      `Employee delete nahi hua: ${error.message}. Backend DELETE route check karein.`,
-      true
-    );
+    showMessage(`Employee delete nahi hua: ${error.message}`, true);
   }
 }
 
-// ==========================================
-// STAFF ACCESS DROPDOWN
-// ID: accessEmployee
-// ==========================================
-
 function renderAccessEmployees() {
   const dropdown = getElement("accessEmployee");
-
-  if (!dropdown) {
-    return;
-  }
+  if (!dropdown) return;
 
   const previousValue = dropdown.value;
-
   dropdown.innerHTML = "";
 
   const placeholder = document.createElement("option");
@@ -493,45 +418,29 @@ function renderAccessEmployees() {
 
 function findSelectedEmployee() {
   const dropdown = getElement("accessEmployee");
-
-  if (!dropdown || !dropdown.value) {
-    return null;
-  }
+  if (!dropdown || !dropdown.value) return null;
 
   return employees.find(
     employee => String(employee.id) === dropdown.value
   ) || null;
 }
 
-// ==========================================
-// PERMISSIONS
-// Checkbox IDs:
-// canViewCustomers, canManageAccounts,
-// canViewReports, canManageStaff,
-// canAddEmployees, canDeleteEmployees
-// ==========================================
-
 function loadEmployeePermissions() {
   const employee = findSelectedEmployee();
 
   PERMISSION_IDS.forEach(id => {
     const checkbox = getElement(id);
-
-    if (!checkbox) {
-      return;
-    }
-
-    const key = id.replace(/^can/, "");
-    const lowerKey = key.charAt(0).toLowerCase() + key.slice(1);
+    if (!checkbox) return;
 
     const permissions = employee?.permissions || {};
 
-    checkbox.checked = Boolean(
+    const value =
       permissions[id] ??
-      permissions[lowerKey] ??
-      permissions[key] ??
-      false
-    );
+      employee?.[id] ??
+      false;
+
+    checkbox.checked =
+      value === true || value === 1 || value === "1";
   });
 }
 
@@ -543,32 +452,36 @@ async function saveEmployeePermissions() {
     return;
   }
 
-  const permissions = {};
+  const employeeId = employee.id;
+  const formData = new URLSearchParams();
 
   PERMISSION_IDS.forEach(id => {
     const checkbox = getElement(id);
-
-    permissions[id] = checkbox ? checkbox.checked : false;
+    formData.set(id, checkbox && checkbox.checked ? "1" : "0");
   });
 
   try {
     await apiRequest(
-      `/api/staff/${encodeURIComponent(employee.id)}/permissions`,
+      `/api/staff/${encodeURIComponent(employeeId)}/permissions`,
       {
         method: "POST",
-        body: JSON.stringify({ permissions })
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: formData.toString()
       }
     );
 
-    employee.permissions = permissions;
+    await loadEmployees();
+
+    const dropdown = getElement("accessEmployee");
+    if (dropdown) dropdown.value = String(employeeId);
+
+    loadEmployeePermissions();
     showMessage("Staff permissions save ho gayi hain.");
   } catch (error) {
     console.error("Saving permissions failed:", error);
-
-    showMessage(
-      `Permissions save nahi huin: ${error.message}. Backend permissions route check karein.`,
-      true
-    );
+    showMessage(`Permissions save nahi huin: ${error.message}`, true);
   }
 }
 
@@ -589,11 +502,6 @@ function setupPermissions() {
   }
 }
 
-// ==========================================
-// STATUS CHECK
-// Optional backend route: GET /api/status
-// ==========================================
-
 async function checkBackendStatus() {
   try {
     const status = await apiRequest("/api/status");
@@ -604,10 +512,6 @@ async function checkBackendStatus() {
     return null;
   }
 }
-
-// ==========================================
-// INITIALIZE PORTAL
-// ==========================================
 
 async function initializePortal() {
   console.log("Bank Admin Portal starting...");
