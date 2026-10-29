@@ -150,7 +150,7 @@ function getFilteredEmployees() {
 // ==========================================
 // DISPLAY EMPLOYEES
 // ==========================================
-function renderEmployees() {
+ {
   if (!employeeList) {
     console.warn('Employee list element "#employeeList" nahi mila.');
     return;
@@ -161,32 +161,58 @@ function renderEmployees() {
   if (filteredEmployees.length === 0) {
     employeeList.innerHTML = "<p>No employees found.</p>";
     return;
+
+function renderEmployees() {
+  if (!employeeList) {
+    console.warn('Employee list element "#employeeList" nahi mila.');
+    return;
+  }
+
+  const filteredEmployees = getFilteredEmployees();
+
+  if (filteredEmployees.length === 0) {
+    employeeList.innerHTML = `
+      <tr>
+        <td colspan="6" style="text-align:center; padding:20px;">
+          No employees found.
+        </td>
+      </tr>
+    `;
+    return;
   }
 
   employeeList.innerHTML = filteredEmployees.map(employee => {
     const id = escapeHTML(employee.id);
-    const fullName = escapeHTML(employeeFullName(employee));
+    const name = escapeHTML(employeeFullName(employee));
     const title = escapeHTML(employee.title || employee.jobTitle || "");
     const email = escapeHTML(employee.email || "");
-    const phone = escapeHTML(employee.phone || employee.contactInfo || "");
-    const location = escapeHTML(employeeLocation(employee));
+    const contact = escapeHTML(
+      employee.phone || employee.contactInfo || employee.contact || ""
+    );
+    const branch = escapeHTML(
+      employee.location || employee.branchLocation || employee.branch || ""
+    );
 
     return `
-      <article class="employee-card">
-        <h3>${fullName}</h3>
-        <p><strong>Employee ID:</strong> ${id}</p>
-        <p><strong>Working Title:</strong> ${title}</p>
-        <p><strong>Email:</strong> ${email}</p>
-        <p><strong>Contact:</strong> ${phone}</p>
-        <p><strong>Branch Location:</strong> ${location}</p>
-        <button type="button" data-delete-employee="${id}">
-          Remove Employee
-        </button>
-      </article>
+      <tr>
+        <td>${name}</td>
+        <td>${title}</td>
+        <td>${email}</td>
+        <td>${contact}</td>
+        <td>${branch}</td>
+        <td>
+          <button
+            type="button"
+            data-delete-employee="${id}"
+            class="delete-btn"
+          >
+            Remove
+          </button>
+        </td>
+      </tr>
     `;
   }).join("");
 }
-
 // Search bar listeners
 [firstSearch, lastSearch, locationSearch].forEach(input => {
   if (input) {
