@@ -1,23 +1,18 @@
 
+"use strict";
+
+// ==========================================
+// BANK ADMIN PORTAL - COMPLETE FRONTEND
+// ==========================================
+
 const API_BASE =
   "https://supernatural-spider-p79g9gq7jg9jc6q6p-8080.app.github.dev";
 
-// ==========================================
-// HTML ELEMENTS
-// ==========================================
-const employeeList = document.getElementById("employeeList");
-const message = document.getElementById("message");
-const employeeForm = document.getElementById("employeeForm");
+// Global employee data
+let employees = [];
 
-const firstSearch = document.getElementById("firstSearch");
-const lastSearch = document.getElementById("lastSearch");
-const locationSearch = document.getElementById("locationSearch");
-
-const accessEmployee = document.getElementById("accessEmployee");
-const permissionsForm = document.getElementById("permissionsForm");
-const permissionsMessage = document.getElementById("permissionsMessage");
-
-const permissionNames = [
+// Permission checkbox IDs
+const PERMISSION_IDS = [
   "canViewCustomers",
   "canManageAccounts",
   "canViewReports",
@@ -26,11 +21,34 @@ const permissionNames = [
   "canDeleteEmployees"
 ];
 
-let employees = [];
+// ==========================================
+// HTML ELEMENT HELPERS
+// ==========================================
+
+function getElement(id) {
+  return document.getElementById(id);
+}
+
+function getValue(id) {
+  const element = getElement(id);
+  return element ? element.value.trim() : "";
+}
+
+function showMessage(text, isError = false) {
+  const message = getElement("message");
+
+  if (message) {
+    message.textContent = text;
+    message.style.color = isError ? "#dc2626" : "#15803d";
+  } else {
+    console.log(text);
+  }
+}
 
 // ==========================================
 // API HELPER
 // ==========================================
+
 async function apiRequest(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
@@ -41,7 +59,7 @@ async function apiRequest(path, options = {}) {
   });
 
   const text = await response.text();
-  let data = null;
+  let data = {};
 
   if (text) {
     try {
@@ -53,7 +71,9 @@ async function apiRequest(path, options = {}) {
 
   if (!response.ok) {
     throw new Error(
-      data?.message || data?.error || `Request failed: HTTP ${response.status}`
+      data.message ||
+      data.error ||
+      `Request failed: HTTP ${response.status}`
     );
   }
 
@@ -61,418 +81,545 @@ async function apiRequest(path, options = {}) {
 }
 
 // ==========================================
-// MESSAGE HELPERS
+// NORMALIZE EMPLOYEE DATA
+// Supports common backend field names
 // ==========================================
-function showMessage(element, text, isError = false) {
-  if (!element) return;
 
-  element.textContent = text;
-  element.style.color = isError ? "#c62828" : "#218838";
-}
+function normalizeEmployee(employee, index) {
+  const firstName =
+    employee.firstName ??
+    employee.first_name ??
+    "";
 
-// ==========================================
-// EMPLOYEE DATA HELPERS
-// ==========================================
-function employeeFullName(employee) {
-  return `${employee.firstName || ""} ${employee.lastName || ""}`.trim();
-}
+  const lastName =
+    employee.lastName ??
+    employee.last_name ??
+    "";
 
-function employeeLocation(employee) {
-  return employee.location || employee.branchLocation || "";
-}
+  const fullName =
+    employee.name ??
+    employee.fullName ??
+    employee.full_name ??
+    `${firstName} ${lastName}`.trim();
 
-function escapeHTML(value) {
-  return String(value ?? "").replace(/[&<>"']/g, character => {
-    const replacements = {
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#39;"
-    };
+  const nameParts = String(fullName).trim().split(/\s+/);
 
-    return replacements[character];
-  });
+  return {
+    ...employee,
+
+    id: employee.id ??
+        employee.staffId ??
+        employee.staff_id ??
+        employee.employeeId ??
+        employee.employee_id ??
+        index,
+
+    firstName: firstName || nameParts[0] || "",
+    lastName: lastName || nameParts.slice(1).join(" "),
+    name: fullName || "Unnamed Employee",
+
+    jobTitle:
+      employee.jobTitle ??
+      employee.job_title ??
+      employee.title ??
+      employee.position ??
+      "",
+
+    email: employee.email ?? "",
+
+    phone:
+      employee.phone ??
+      employee.contact ??
+      employee.contactInfo ??
+      employee.contact_info ??
+      "",
+
+    location:
+      employee.location ??
+      employee.branch ??
+      employee.branchLocation ??
+      employee.branch_location ??
+      "",
+
+    permissions: employee.permissions || {}
+  };
 }
 
 // ==========================================
 // LOAD EMPLOYEES
 // ==========================================
+
 async function loadEmployees() {
+  const employeeList = getElement("employeeList");
+
+  if (employeeList) {
+    employeeList.innerHTML =
+      '<tr><td colspan="8">Loading employees...</td></tr>';
+  }
+
   try {
     const data = await apiRequest("/api/staff");
 
-    employees = Array.isArray(data)
-      ? data
-      : Array.isArray(data?.staff)
-        ? data.staff
-        : Array.isArray(data?.employees)
-          ? data.employees
-          : [];
+    let records = [];
+
+    if (Array.isArray(data)) {
+      records = data;
+    } else if (Array.isArray(data.staff)) {
+      records = data.staff;
+    } else if (Array.isArray(data.employees)) {
+      records = data.employees;
+    } else if (Array.isArray(data.data)) {
+      records = data.data;
+    }
+
+    employees = records.map(normalizeEmployee);
 
     renderEmployees();
     renderAccessEmployees();
 
-    showMessage(message, `${employees.length} employee record(s) loaded.`);
+    showMessage(
+      employees.length
+        ? `${employees.length} employee record(s) loaded.`
+        : "No employees found."
+    );
+
     return employees;
   } catch (error) {
     console.error("Could not load employees:", error);
-    showMessage(
-      message,
-      `Employees load nahi huay: ${error.message}`,
-      true
-    );
-    throw error;
+
+    if (employeeList) {
+      employeeList.innerHTML =
+        '<tr><td colspan="8">Employees load nahi huay. API URL, backend aur port check karein.</td></tr>';
+    }
+
+    showMessage(`Could not load employees: ${error.message}`, true);
+    return [];
   }
 }
 
 // ==========================================
-// SEARCH EMPLOYEES
+// RENDER EMPLOYEE TABLE
+// employeeList should be a table <tbody>
 // ==========================================
-function getFilteredEmployees() {
-  const first = (firstSearch?.value || "").trim().toLowerCase();
-  const last = (lastSearch?.value || "").trim().toLowerCase();
-  const location = (locationSearch?.value || "").trim().toLowerCase();
 
-  return employees.filter(employee => {
-    const firstName = (employee.firstName || "").toLowerCase();
-    const lastName = (employee.lastName || "").toLowerCase();
-    const employeeBranch = employeeLocation(employee).toLowerCase();
+function renderEmployees(list = employees) {
+  const employeeList = getElement("employeeList");
 
-    return (
-      firstName.includes(first) &&
-      lastName.includes(last) &&
-      employeeBranch.includes(location)
+  if (!employeeList) {
+    console.error(
+      'Table body "#employeeList" nahi mila. index.html mein tbody id check karein.'
     );
+    return;
+  }
+
+  employeeList.innerHTML = "";
+
+  if (!list.length) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+
+    cell.colSpan = 8;
+    cell.textContent = "No employees found.";
+    row.appendChild(cell);
+    employeeList.appendChild(row);
+    return;
+  }
+
+  list.forEach(employee => {
+    const row = document.createElement("tr");
+
+    const values = [
+      employee.firstName,
+      employee.lastName,
+      employee.jobTitle,
+      employee.email,
+      employee.phone,
+      employee.location
+    ];
+
+    values.forEach(value => {
+      const cell = document.createElement("td");
+      cell.textContent = value || "—";
+      row.appendChild(cell);
+    });
+
+    // Access button
+    const accessCell = document.createElement("td");
+    const accessButton = document.createElement("button");
+
+    accessButton.type = "button";
+    accessButton.textContent = "Manage Access";
+    accessButton.addEventListener("click", () => {
+      const dropdown = getElement("accessEmployee");
+
+      if (dropdown) {
+        dropdown.value = String(employee.id);
+        dropdown.dispatchEvent(new Event("change"));
+      }
+
+      const accessSection = getElement("staffAccess") ||
+                            getElement("accessSection");
+
+      if (accessSection) {
+        accessSection.scrollIntoView({
+          behavior: "smooth",
+          block: "start"
+        });
+      }
+    });
+
+    accessCell.appendChild(accessButton);
+    row.appendChild(accessCell);
+
+    // Delete button
+    const deleteCell = document.createElement("td");
+    const deleteButton = document.createElement("button");
+
+    deleteButton.type = "button";
+    deleteButton.textContent = "Delete";
+    deleteButton.style.color = "#dc2626";
+
+    deleteButton.addEventListener("click", async () => {
+      await deleteEmployee(employee.id, employee.name);
+    });
+
+    deleteCell.appendChild(deleteButton);
+    row.appendChild(deleteCell);
+
+    employeeList.appendChild(row);
   });
 }
 
 // ==========================================
-// DISPLAY EMPLOYEES
+// THREE SEARCH BARS
+// IDs: firstSearch, lastSearch, locationSearch
 // ==========================================
- {
-  if (!employeeList) {
-    console.warn('Employee list element "#employeeList" nahi mila.');
-    return;
-  }
 
-  const filteredEmployees = getFilteredEmployees();
+function filterEmployees() {
+  const first = getValue("firstSearch").toLowerCase();
+  const last = getValue("lastSearch").toLowerCase();
+  const location = getValue("locationSearch").toLowerCase();
 
-  if (filteredEmployees.length === 0) {
-    employeeList.innerHTML = "<p>No employees found.</p>";
-    return;
+  const filtered = employees.filter(employee => {
+    const firstName = String(employee.firstName).toLowerCase();
+    const lastName = String(employee.lastName).toLowerCase();
+    const branch = String(employee.location).toLowerCase();
 
-function renderEmployees() {
-  if (!employeeList) {
-    console.warn('Employee list element "#employeeList" nahi mila.');
-    return;
-  }
+    return firstName.includes(first) &&
+           lastName.includes(last) &&
+           branch.includes(location);
+  });
 
-  const filteredEmployees = getFilteredEmployees();
-
-  if (filteredEmployees.length === 0) {
-    employeeList.innerHTML = `
-      <tr>
-        <td colspan="6" style="text-align:center; padding:20px;">
-          No employees found.
-        </td>
-      </tr>
-    `;
-    return;
-  }
-
-  employeeList.innerHTML = filteredEmployees.map(employee => {
-    const id = escapeHTML(employee.id);
-    const name = escapeHTML(employeeFullName(employee));
-    const title = escapeHTML(employee.title || employee.jobTitle || "");
-    const email = escapeHTML(employee.email || "");
-    const contact = escapeHTML(
-      employee.phone || employee.contactInfo || employee.contact || ""
-    );
-    const branch = escapeHTML(
-      employee.location || employee.branchLocation || employee.branch || ""
-    );
-
-    return `
-      <tr>
-        <td>${name}</td>
-        <td>${title}</td>
-        <td>${email}</td>
-        <td>${contact}</td>
-        <td>${branch}</td>
-        <td>
-          <button
-            type="button"
-            data-delete-employee="${id}"
-            class="delete-btn"
-          >
-            Remove
-          </button>
-        </td>
-      </tr>
-    `;
-  }).join("");
+  renderEmployees(filtered);
 }
-// Search bar listeners
-[firstSearch, lastSearch, locationSearch].forEach(input => {
-  if (input) {
-    input.addEventListener("input", renderEmployees);
-  }
-});
+
+function setupSearch() {
+  ["firstSearch", "lastSearch", "locationSearch"].forEach(id => {
+    const input = getElement(id);
+
+    if (input) {
+      input.addEventListener("input", filterEmployees);
+    }
+  });
+}
 
 // ==========================================
 // ADD EMPLOYEE
+// Form ID: employeeForm
 // ==========================================
-if (employeeForm) {
-  employeeForm.addEventListener("submit", async event => {
+
+async function addEmployee(event) {
+  if (event) {
     event.preventDefault();
+  }
 
-    const formValue = id =>
-      document.getElementById(id)?.value?.trim() || "";
+  const firstName = getValue("firstName");
+  const lastName = getValue("lastName");
+  const jobTitle = getValue("jobTitle");
+  const email = getValue("email");
 
-    const firstName = formValue("firstName");
-    const lastName = formValue("lastName");
-    const title = formValue("jobTitle") || formValue("title");
-    const email = formValue("email");
+  // Optional fields
+  const phone =
+    getValue("phone") ||
+    getValue("contact") ||
+    getValue("contactInfo");
 
-    const phone =
-      formValue("phone") ||
-      formValue("contactInfo") ||
-      formValue("contact");
+  const location =
+    getValue("location") ||
+    getValue("branch") ||
+    getValue("branchLocation");
 
-    const location =
-      formValue("location") ||
-      formValue("branchLocation") ||
-      formValue("branch");
+  if (!firstName || !lastName || !jobTitle || !email) {
+    showMessage(
+      "First name, last name, job title aur email fill karein.",
+      true
+    );
+    return;
+  }
 
-    if (!firstName || !lastName || !title || !email) {
-      showMessage(
-        message,
-        "First name, last name, title aur email zaroor bharein.",
-        true
-      );
-      return;
-    }
+  const submitButton = getElement("employeeForm")
+    ?.querySelector('[type="submit"]');
 
-    const newEmployee = {
+  if (submitButton) {
+    submitButton.disabled = true;
+  }
+
+  try {
+    const employeeData = {
       firstName,
       lastName,
-      title,
+      name: `${firstName} ${lastName}`,
+      jobTitle,
+      title: jobTitle,
       email,
       phone,
-      location
+      contact: phone,
+      location,
+      branch: location
     };
 
-    const submitButton = employeeForm.querySelector(
-      'button[type="submit"], button:not([type])'
-    );
+    await apiRequest("/api/staff", {
+      method: "POST",
+      body: JSON.stringify(employeeData)
+    });
 
-    if (submitButton) submitButton.disabled = true;
+    const form = getElement("employeeForm");
 
-    try {
-      await apiRequest("/api/staff", {
-        method: "POST",
-        body: JSON.stringify(newEmployee)
-      });
-
-      employeeForm.reset();
-      await loadEmployees();
-
-      showMessage(message, "Employee successfully add ho gaya.");
-    } catch (error) {
-      console.error("Add employee failed:", error);
-      showMessage(
-        message,
-        `Employee add nahi hua: ${error.message}`,
-        true
-      );
-    } finally {
-      if (submitButton) submitButton.disabled = false;
+    if (form) {
+      form.reset();
     }
-  });
+
+    await loadEmployees();
+    showMessage("Employee add request successful.");
+  } catch (error) {
+    console.error("Add employee failed:", error);
+
+    showMessage(
+      `Employee add nahi hua: ${error.message}. Backend POST /api/staff check karein.`,
+      true
+    );
+  } finally {
+    if (submitButton) {
+      submitButton.disabled = false;
+    }
+  }
+}
+
+function setupEmployeeForm() {
+  const form = getElement("employeeForm");
+
+  if (form) {
+    form.addEventListener("submit", addEmployee);
+  } else {
+    console.warn('Form "#employeeForm" nahi mila.');
+  }
 }
 
 // ==========================================
 // DELETE EMPLOYEE
+// Backend must support DELETE /api/staff/{id}
 // ==========================================
-if (employeeList) {
-  employeeList.addEventListener("click", async event => {
-    const button = event.target.closest("[data-delete-employee]");
-    if (!button) return;
 
-    const id = button.getAttribute("data-delete-employee");
-    const employee = employees.find(item => String(item.id) === String(id));
+async function deleteEmployee(id, name = "this employee") {
+  if (id === undefined || id === null || id === "") {
+    showMessage(
+      "Employee ID missing hai. Backend records mein unique ID zaroori hai.",
+      true
+    );
+    return;
+  }
 
-    if (!employee) {
-      showMessage(message, "Employee record nahi mila.", true);
-      return;
-    }
+  if (!window.confirm(`Kya aap ${name} ko delete karna chahte hain?`)) {
+    return;
+  }
 
-    if (!confirm(`Kya aap ${employeeFullName(employee)} ko remove karna chahte hain?`)) {
-      return;
-    }
+  try {
+    await apiRequest(`/api/staff/${encodeURIComponent(id)}`, {
+      method: "DELETE"
+    });
 
-    button.disabled = true;
+    await loadEmployees();
+    showMessage("Employee delete ho gaya.");
+  } catch (error) {
+    console.error("Delete employee failed:", error);
 
-    try {
-      await apiRequest(`/api/staff/${encodeURIComponent(id)}`, {
-        method: "DELETE"
-      });
-
-      await loadEmployees();
-      showMessage(message, "Employee successfully remove ho gaya.");
-    } catch (error) {
-      console.error("Delete employee failed:", error);
-      showMessage(
-        message,
-        `Employee remove nahi hua: ${error.message}`,
-        true
-      );
-      button.disabled = false;
-    }
-  });
+    showMessage(
+      `Employee delete nahi hua: ${error.message}. Backend DELETE route check karein.`,
+      true
+    );
+  }
 }
 
 // ==========================================
 // STAFF ACCESS DROPDOWN
+// ID: accessEmployee
 // ==========================================
+
 function renderAccessEmployees() {
-  if (!accessEmployee) return;
+  const dropdown = getElement("accessEmployee");
 
-  const previousValue = accessEmployee.value;
+  if (!dropdown) {
+    return;
+  }
 
-  accessEmployee.replaceChildren(
-    new Option("Select an employee", "")
-  );
+  const previousValue = dropdown.value;
+
+  dropdown.innerHTML = "";
+
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "Select an employee";
+  dropdown.appendChild(placeholder);
 
   employees.forEach(employee => {
-    const option = new Option(
-      `${employeeFullName(employee)} (${employee.title || employee.jobTitle || "Staff"})`,
-      String(employee.id)
-    );
+    const option = document.createElement("option");
 
-    accessEmployee.add(option);
+    option.value = String(employee.id);
+    option.textContent =
+      `${employee.name} — ${employee.jobTitle || "Staff"}`;
+
+    dropdown.appendChild(option);
   });
 
   if (
     previousValue &&
     employees.some(employee => String(employee.id) === previousValue)
   ) {
-    accessEmployee.value = previousValue;
+    dropdown.value = previousValue;
   }
+
+  loadEmployeePermissions();
 }
 
-// ==========================================
-// SHOW SELECTED EMPLOYEE PERMISSIONS
-// ==========================================
-function showEmployeePermissions() {
-  if (!accessEmployee) return;
+function findSelectedEmployee() {
+  const dropdown = getElement("accessEmployee");
 
-  const selectedId = accessEmployee.value;
-  const employee = employees.find(
-    item => String(item.id) === String(selectedId)
-  );
-
-  permissionNames.forEach(name => {
-    const checkbox = document.getElementById(name);
-
-    if (checkbox) {
-      checkbox.checked = employee
-        ? Boolean(employee[name] ?? employee.permissions?.[name])
-        : false;
-    }
-  });
-
-  if (permissionsMessage) {
-    permissionsMessage.textContent = employee
-      ? `Permissions for ${employeeFullName(employee)}`
-      : "";
+  if (!dropdown || !dropdown.value) {
+    return null;
   }
-}
 
-if (accessEmployee) {
-  accessEmployee.addEventListener("change", showEmployeePermissions);
+  return employees.find(
+    employee => String(employee.id) === dropdown.value
+  ) || null;
 }
 
 // ==========================================
-// SAVE PERMISSIONS
+// PERMISSIONS
+// Checkbox IDs:
+// canViewCustomers, canManageAccounts,
+// canViewReports, canManageStaff,
+// canAddEmployees, canDeleteEmployees
 // ==========================================
-if (permissionsForm) {
-  permissionsForm.addEventListener("submit", async event => {
-    event.preventDefault();
 
-    const selectedId = accessEmployee?.value;
+function loadEmployeePermissions() {
+  const employee = findSelectedEmployee();
 
-    if (!selectedId) {
-      showMessage(
-        permissionsMessage,
-        "Pehle employee select karein.",
-        true
-      );
+  PERMISSION_IDS.forEach(id => {
+    const checkbox = getElement(id);
+
+    if (!checkbox) {
       return;
     }
 
-    const permissions = {};
+    const key = id.replace(/^can/, "");
+    const lowerKey = key.charAt(0).toLowerCase() + key.slice(1);
 
-    permissionNames.forEach(name => {
-      const checkbox = document.getElementById(name);
-      permissions[name] = checkbox ? checkbox.checked : false;
-    });
+    const permissions = employee?.permissions || {};
 
-    const submitButton = permissionsForm.querySelector(
-      'button[type="submit"], button:not([type])'
+    checkbox.checked = Boolean(
+      permissions[id] ??
+      permissions[lowerKey] ??
+      permissions[key] ??
+      false
+    );
+  });
+}
+
+async function saveEmployeePermissions() {
+  const employee = findSelectedEmployee();
+
+  if (!employee) {
+    showMessage("Pehle employee select karein.", true);
+    return;
+  }
+
+  const permissions = {};
+
+  PERMISSION_IDS.forEach(id => {
+    const checkbox = getElement(id);
+
+    permissions[id] = checkbox ? checkbox.checked : false;
+  });
+
+  try {
+    await apiRequest(
+      `/api/staff/${encodeURIComponent(employee.id)}/permissions`,
+      {
+        method: "POST",
+        body: JSON.stringify({ permissions })
+      }
     );
 
-    if (submitButton) submitButton.disabled = true;
+    employee.permissions = permissions;
+    showMessage("Staff permissions save ho gayi hain.");
+  } catch (error) {
+    console.error("Saving permissions failed:", error);
 
-    try {
-      await apiRequest(
-        `/api/staff/${encodeURIComponent(selectedId)}/permissions`,
-        {
-          method: "POST",
-          body: JSON.stringify(permissions)
-        }
-      );
+    showMessage(
+      `Permissions save nahi huin: ${error.message}. Backend permissions route check karein.`,
+      true
+    );
+  }
+}
 
-      await loadEmployees();
+function setupPermissions() {
+  const dropdown = getElement("accessEmployee");
 
-      if (accessEmployee) {
-        accessEmployee.value = String(selectedId);
-      }
+  if (dropdown) {
+    dropdown.addEventListener("change", loadEmployeePermissions);
+  }
 
-      showEmployeePermissions();
+  const saveButton =
+    getElement("savePermissions") ||
+    getElement("saveAccess") ||
+    getElement("savePermissionsBtn");
 
-      showMessage(
-        permissionsMessage,
-        "Permissions successfully save ho gayi."
-      );
-    } catch (error) {
-      console.error("Save permissions failed:", error);
-      showMessage(
-        permissionsMessage,
-        `Permissions save nahi hui: ${error.message}`,
-        true
-      );
-    } finally {
-      if (submitButton) submitButton.disabled = false;
-    }
-  });
+  if (saveButton) {
+    saveButton.addEventListener("click", saveEmployeePermissions);
+  }
+}
+
+// ==========================================
+// STATUS CHECK
+// Optional backend route: GET /api/status
+// ==========================================
+
+async function checkBackendStatus() {
+  try {
+    const status = await apiRequest("/api/status");
+    console.log("Backend status:", status);
+    return status;
+  } catch (error) {
+    console.warn("Backend status check failed:", error.message);
+    return null;
+  }
 }
 
 // ==========================================
 // INITIALIZE PORTAL
 // ==========================================
+
 async function initializePortal() {
-  console.log("Bank Admin Portal: starting...");
+  console.log("Bank Admin Portal starting...");
 
-  try {
-    await loadEmployees();
-    renderAccessEmployees();
+  setupSearch();
+  setupEmployeeForm();
+  setupPermissions();
 
-    console.log("Bank Admin Portal: initialization finished.");
-  } catch (error) {
-    console.error("Portal initialization failed:", error);
-  }
+  await checkBackendStatus();
+  await loadEmployees();
+
+  console.log("Bank Admin Portal initialization finished.");
 }
 
 if (document.readyState === "loading") {
