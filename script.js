@@ -1,8 +1,8 @@
-
+```javascript
 const API_BASE =
   "https://supernatural-spider-p79g9gq7jg9jc6q6p-8080.app.github.dev";
 
-// Existing page elements
+// Page elements
 const employeeList = document.getElementById("employeeList");
 const message = document.getElementById("message");
 const employeeForm = document.getElementById("employeeForm");
@@ -26,6 +26,7 @@ const accessPermissionFields = [
 ];
 
 let employees = [];
+let isLoadingEmployees = false;
 
 function showMessage(element, text) {
   if (element) element.textContent = text;
@@ -69,7 +70,8 @@ function renderEmployees() {
       <td>${escapeHTML(employee.phone)}</td>
       <td>${escapeHTML(employee.branch)}</td>
       <td>
-        <button type="button"
+        <button
+          type="button"
           class="delete-employee"
           data-id="${escapeHTML(employee.id)}">
           Delete
@@ -79,47 +81,57 @@ function renderEmployees() {
   `).join("");
 }
 
-// Populate the employee dropdown from the API data
+// Populate employee dropdown
 function renderAccessEmployees() {
   if (!accessEmployeeSelect) {
-    console.error("Dropdown #accessEmployee HTML mein nahi mila.");
+    console.error("HTML mein #accessEmployee dropdown nahi mila.");
     return;
   }
 
   const selectedId = accessEmployeeSelect.value;
 
-  accessEmployeeSelect.replaceChildren();
-
-  const placeholder = document.createElement("option");
-  placeholder.value = "";
-  placeholder.textContent = "Select an employee";
-  accessEmployeeSelect.appendChild(placeholder);
+  accessEmployeeSelect.replaceChildren(
+    new Option("Select an employee", "")
+  );
 
   employees.forEach(employee => {
-    const option = document.createElement("option");
-    option.value = String(employee.id);
-    option.textContent =
-      `${employee.firstName} ${employee.lastName} (${employee.title})`;
+    const fullName =
+      `${employee.firstName ?? ""} ${employee.lastName ?? ""}`.trim();
 
-    accessEmployeeSelect.appendChild(option);
+    const option = new Option(
+      `${fullName} (${employee.title ?? "Employee"})`,
+      String(employee.id)
+    );
+
+    accessEmployeeSelect.add(option);
   });
 
+  // Preserve selected employee if still available
   if (employees.some(employee => String(employee.id) === selectedId)) {
     accessEmployeeSelect.value = selectedId;
   }
 
   console.log(
-    "Access dropdown employees:",
-    accessEmployeeSelect.options.length - 1
+    "Access dropdown loaded:",
+    accessEmployeeSelect.options.length - 1,
+    "employees"
   );
 }
 
-// Load employee data once and update both sections
+// Load employee data and update both sections
 async function loadEmployees() {
+  if (isLoadingEmployees) return;
+
+  isLoadingEmployees = true;
+
   try {
     showMessage(message, "Loading employees...");
 
-    const response = await fetch(`${API_BASE}/api/staff`);
+    const response = await fetch(`${API_BASE}/api/staff`, {
+      method: "GET",
+      headers: { "Accept": "application/json" },
+      cache: "no-store"
+    });
 
     if (!response.ok) {
       throw new Error(`Server returned HTTP ${response.status}`);
@@ -128,7 +140,7 @@ async function loadEmployees() {
     const data = await response.json();
 
     if (!Array.isArray(data)) {
-      throw new Error("Unexpected staff data from server");
+      throw new Error("Server se staff list ka format ghalat mila.");
     }
 
     employees = data;
@@ -137,13 +149,17 @@ async function loadEmployees() {
     renderAccessEmployees();
 
     showMessage(message, `${employees.length} employees loaded.`);
+    console.log("Employees successfully loaded:", employees.length);
   } catch (error) {
     console.error("Load employees error:", error);
+
     showMessage(message, `Could not load employees: ${error.message}`);
     showMessage(
       permissionsMessage,
       `Employees load nahi huay: ${error.message}`
     );
+  } finally {
+    isLoadingEmployees = false;
   }
 }
 
@@ -163,7 +179,10 @@ if (employeeForm) {
     const location = document.getElementById("location");
 
     if (!firstName || !lastName || !jobTitle || !email || !phone || !location) {
-      showMessage(message, "Employee form ke required fields nahi milay.");
+      showMessage(
+        message,
+        "Employee form ke required fields nahi milay. HTML field IDs check karo."
+      );
       return;
     }
 
@@ -175,6 +194,15 @@ if (employeeForm) {
       phone: phone.value.trim(),
       branch: location.value.trim()
     });
+
+    if (
+      !formData.get("firstName") ||
+      !formData.get("lastName") ||
+      !formData.get("title")
+    ) {
+      showMessage(message, "First name, last name aur job title required hain.");
+      return;
+    }
 
     try {
       if (submitButton) submitButton.disabled = true;
@@ -199,7 +227,7 @@ if (employeeForm) {
 
       showMessage(
         message,
-        `Employee ${result.firstName ?? ""} ${result.lastName ?? ""} added successfully.`
+        `Employee ${result.firstName ?? formData.get("firstName")} ${result.lastName ?? formData.get("lastName")} added successfully.`
       );
     } catch (error) {
       console.error("Add employee error:", error);
@@ -217,6 +245,7 @@ if (employeeList) {
     if (!button) return;
 
     const id = button.dataset.id;
+
     const employee = employees.find(
       item => String(item.id) === String(id)
     );
@@ -253,16 +282,19 @@ if (employeeList) {
     } catch (error) {
       console.error("Delete employee error:", error);
       showMessage(message, `Could not delete employee: ${error.message}`);
+      await loadEmployees();
     }
   });
 }
 
 // SEARCH BARS
 [firstSearch, lastSearch, locationSearch].forEach(input => {
-  if (input) input.addEventListener("input", renderEmployees);
+  if (input) {
+    input.addEventListener("input", renderEmployees);
+  }
 });
 
-// Clear all permission checkboxes
+// Clear permission checkboxes
 function clearPermissionCheckboxes() {
   accessPermissionFields.forEach(field => {
     const checkbox = document.getElementById(field);
@@ -270,39 +302,48 @@ function clearPermissionCheckboxes() {
   });
 }
 
-// Select an employee and show their permissions
-if (accessEmployeeSelect) {
-  accessEmployeeSelect.addEventListener("change", () => {
-    const employee = employees.find(
-      item => String(item.id) === accessEmployeeSelect.value
-    );
+// Load selected employee's permissions
+function loadSelectedEmployeePermissions() {
+  const employeeId = accessEmployeeSelect?.value;
 
-    clearPermissionCheckboxes();
+  const employee = employees.find(
+    item => String(item.id) === String(employeeId)
+  );
 
-    if (!employee) {
-      showMessage(permissionsMessage, "");
+  clearPermissionCheckboxes();
+
+  if (!employee) {
+    showMessage(permissionsMessage, "");
+    return;
+  }
+
+  accessPermissionFields.forEach(field => {
+    const checkbox = document.getElementById(field);
+
+    if (!checkbox) {
+      console.error(`HTML mein permission checkbox nahi mila: ${field}`);
       return;
     }
 
-    accessPermissionFields.forEach(field => {
-      const checkbox = document.getElementById(field);
+    const value = employee[field];
 
-      if (!checkbox) {
-        console.error(`Missing permission checkbox: ${field}`);
-        return;
-      }
-
-      checkbox.checked =
-        employee[field] === true ||
-        employee[field] === 1 ||
-        employee[field] === "1";
-    });
-
-    showMessage(
-      permissionsMessage,
-      `Permissions loaded for ${employee.firstName} ${employee.lastName}.`
-    );
+    checkbox.checked =
+      value === true ||
+      value === 1 ||
+      value === "1";
   });
+
+  showMessage(
+    permissionsMessage,
+    `Permissions loaded for ${employee.firstName} ${employee.lastName}.`
+  );
+}
+
+if (accessEmployeeSelect) {
+  accessEmployeeSelect.addEventListener(
+    "change",
+    loadSelectedEmployeePermissions
+  );
 }
 
 // SAVE PERMISSIONS
@@ -338,6 +379,7 @@ if (permissionsForm) {
 
     try {
       if (saveButton) saveButton.disabled = true;
+
       showMessage(permissionsMessage, "Saving permissions...");
 
       const response = await fetch(
@@ -361,12 +403,13 @@ if (permissionsForm) {
 
       if (accessEmployeeSelect) {
         accessEmployeeSelect.value = employeeId;
-        accessEmployeeSelect.dispatchEvent(new Event("change"));
+        loadSelectedEmployeePermissions();
       }
 
       showMessage(permissionsMessage, "Permissions successfully saved.");
     } catch (error) {
       console.error("Save permissions error:", error);
+
       showMessage(
         permissionsMessage,
         `Permissions save nahi huin: ${error.message}`
@@ -377,5 +420,23 @@ if (permissionsForm) {
   });
 }
 
-// Initial page load
-loadEmployees();
+// Initial load: run after HTML elements exist
+async function initializePortal() {
+  console.log("Bank Admin Portal script initialized.");
+
+  await loadEmployees();
+
+  // Retry dropdown loading if the employee data is already available
+  if (employees.length > 0) {
+    renderAccessEmployees();
+  }
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initializePortal, {
+    once: true
+  });
+} else {
+  initializePortal();
+}
+```
