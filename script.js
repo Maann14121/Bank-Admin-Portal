@@ -1,78 +1,185 @@
 
-const form = document.getElementById("employeeForm");
-const list = document.getElementById("employeeList");
-const message = document.getElementById("message");
+const API_BASE =
+  "https://supernatural-spider-p79g9gq7jg9jc6q6p-8080.app.github.dev";
 
-const fields = {
-  first: document.getElementById("firstSearch"),
-  last: document.getElementById("lastSearch"),
-  location: document.getElementById("locationSearch")
-};
+const employeeList = document.getElementById("employeeList");
+const message = document.getElementById("message");
+const employeeForm = document.getElementById("employeeForm");
+
+const firstSearch = document.getElementById("firstSearch");
+const lastSearch = document.getElementById("lastSearch");
+const locationSearch = document.getElementById("locationSearch");
 
 let employees = [];
 
-function renderEmployees() {
-  const first = fields.first.value.trim().toLowerCase();
-  const last = fields.last.value.trim().toLowerCase();
-  const location = fields.location.value.trim().toLowerCase();
-
-  list.replaceChildren();
-
-  employees.forEach((employee, index) => {
-    if (!employee.first.toLowerCase().includes(first)) return;
-    if (!employee.last.toLowerCase().includes(last)) return;
-    if (!employee.location.toLowerCase().includes(location)) return;
-
-    const row = document.createElement("tr");
-
-    [
-      employee.first + " " + employee.last,
-      employee.title,
-      employee.email,
-      employee.phone,
-      employee.location
-    ].forEach(value => {
-      const cell = document.createElement("td");
-      cell.textContent = value;
-      row.appendChild(cell);
-    });
-
-    const actionCell = document.createElement("td");
-    const removeButton = document.createElement("button");
-
-    removeButton.textContent = "Remove";
-    removeButton.className = "delete-button";
-    removeButton.type = "button";
-
-    removeButton.addEventListener("click", () => {
-      employees.splice(index, 1);
-      renderEmployees();
-      message.textContent = "Employee removed.";
-    });
-
-    actionCell.appendChild(removeButton);
-    row.appendChild(actionCell);
-    list.appendChild(row);
-  });
+function escapeHTML(value) {
+  return String(value ?? "").replace(/[&<>"']/g, character => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  })[character]);
 }
 
-form.addEventListener("submit", event => {
+function renderEmployees() {
+  const first = firstSearch.value.trim().toLowerCase();
+  const last = lastSearch.value.trim().toLowerCase();
+  const location = locationSearch.value.trim().toLowerCase();
+
+  const filtered = employees.filter(employee =>
+    String(employee.firstName ?? "").toLowerCase().includes(first) &&
+    String(employee.lastName ?? "").toLowerCase().includes(last) &&
+    String(employee.branch ?? "").toLowerCase().includes(location)
+  );
+
+  if (filtered.length === 0) {
+    employeeList.innerHTML =
+      '<tr><td colspan="6">No employees found.</td></tr>';
+    return;
+  }
+
+  employeeList.innerHTML = filtered.map(employee => `
+    <tr>
+      <td>${escapeHTML(employee.firstName)} ${escapeHTML(employee.lastName)}</td>
+      <td>${escapeHTML(employee.title)}</td>
+      <td>${escapeHTML(employee.email)}</td>
+      <td>${escapeHTML(employee.phone)}</td>
+      <td>${escapeHTML(employee.branch)}</td>
+      <td>
+        <button
+          type="button"
+          class="delete-employee"
+          data-id="${escapeHTML(employee.id)}">
+          Delete
+        </button>
+      </td>
+    </tr>
+  `).join("");
+}
+
+async function loadEmployees() {
+  try {
+    message.textContent = "Loading employees...";
+
+    const response = await fetch(`${API_BASE}/api/staff`);
+
+    if (!response.ok) {
+      throw new Error(`Server returned HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    if (!Array.isArray(data)) {
+      throw new Error("Unexpected staff data from server");
+    }
+
+    employees = data;
+    renderEmployees();
+    message.textContent = `${employees.length} employees loaded.`;
+  } catch (error) {
+    console.error("Load employees error:", error);
+    message.textContent =
+      `Could not load employees: ${error.message}`;
+  }
+}
+
+// ADD EMPLOYEE
+employeeForm.addEventListener("submit", async event => {
   event.preventDefault();
 
-  employees.push({
-    first: document.getElementById("firstName").value.trim(),
-    last: document.getElementById("lastName").value.trim(),
+  const submitButton =
+    employeeForm.querySelector('button[type="submit"]');
+
+  const formData = new URLSearchParams({
+    firstName: document.getElementById("firstName").value.trim(),
+    lastName: document.getElementById("lastName").value.trim(),
     title: document.getElementById("jobTitle").value.trim(),
     email: document.getElementById("email").value.trim(),
     phone: document.getElementById("phone").value.trim(),
-    location: document.getElementById("location").value.trim()
+    branch: document.getElementById("location").value.trim()
   });
 
-  form.reset();
-  renderEmployees();
-  message.textContent = "Employee added successfully.";
+  try {
+    submitButton.disabled = true;
+    message.textContent = "Saving employee...";
+
+    const response = await fetch(`${API_BASE}/api/staff`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      body: formData.toString()
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || `HTTP ${response.status}`);
+    }
+
+    employeeForm.reset();
+    await loadEmployees();
+
+    message.textContent =
+      `Employee ${result.firstName ?? ""} ${result.lastName ?? ""} added successfully.`;
+  } catch (error) {
+    console.error("Add employee error:", error);
+    message.textContent =
+      `Could not add employee: ${error.message}`;
+  } finally {
+    submitButton.disabled = false;
+  }
 });
 
-Object.values(fields).forEach(input => {
+// DELETE EMPLOYEE
+employeeList.addEventListener("click", async event => {
+  const button = event.target.closest(".delete-employee");
+
+  if (!button) return;
+
+  const id = button.dataset.id;
+  const employee = employees.find(
+    item => String(item.id) === String(id)
+  );
+
+  if (!employee) return;
+
+  const confirmed = confirm(
+    `Kya aap ${employee.firstName} ${employee.lastName} ko delete karna chahte hain?`
+  );
+
+  if (!confirmed) return;
+
+  try {
+    button.disabled = true;
+    message.textContent = "Deleting employee...";
+
+    const response = await fetch(
+      `${API_BASE}/api/staff/${encodeURIComponent(id)}`,
+      { method: "DELETE" }
+    );
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || `HTTP ${response.status}`);
+    }
+
+    await loadEmployees();
+    message.textContent =
+      `${employee.firstName} ${employee.lastName} deleted successfully.`;
+  } catch (error) {
+    console.error("Delete employee error:", error);
+    message.textContent =
+      `Could not delete employee: ${error.message}`;
+  }
+});
+
+// SEARCH BARS
+[firstSearch, lastSearch, locationSearch].forEach(input => {
   input.addEventListener("input", renderEmployees);
 });
+
+// INITIAL LOAD
+loadEmployees();
