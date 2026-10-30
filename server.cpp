@@ -1,38 +1,73 @@
 #include "httplib.h"
 #include <algorithm>
+#include <cctype>
+#include <chrono>
 #include <cstdio>
 #include <fstream>
 #include <iostream>
-#include <map>
+#include <random>
 #include <sstream>
 #include <string>
 #include <vector>
-using namespace std; using namespace httplib;
-struct Row{vector<string> v;};
-const string STAFF="staff.txt", CUSTOMERS="customers.txt", ACCOUNTS="accounts.txt", BRANCHES="branches.txt";
-string esc(const string&s){string o;for(char c:s){switch(c){case '"':o+="\\\"";break;case '\\':o+="\\\\";break;case '\n':o+="\\n";break;case '\r':o+="\\r";break;case '\t':o+="\\t";break;default:if((unsigned char)c>=32)o+=c;}}return o;}
-string jstr(const string&s){return "\""+esc(s)+"\"";}
-vector<Row> read(const string&path,size_t n){vector<Row>a;ifstream f(path);string l;while(getline(f,l)){stringstream ss(l);string x;Row r;while(getline(ss,x,'|'))r.v.push_back(x);if(r.v.size()==n)a.push_back(r);else if(path==STAFF && r.v.size()==11){r.v.push_back("0");r.v.push_back("0");a.push_back(r);}}return a;}
-bool save(const string&path,const vector<Row>&a){string tmp=path+".tmp";{ofstream f(tmp,ios::trunc);if(!f)return false;for(auto&r:a){for(size_t i=0;i<r.v.size();++i){if(i)f<<'|';f<<r.v[i];}f<<'\n';}if(!f.good())return false;}if(rename(tmp.c_str(),path.c_str())!=0){remove(tmp.c_str());return false;}return true;}
-string val(const Request&r,const string&k){return r.has_param(k)?r.get_param_value(k):"";}
-bool safe(const string&s){return s.find('|')==string::npos&&s.find('\n')==string::npos&&s.find('\r')==string::npos;}
-string nextid(const vector<Row>&a){int n=1;for(auto&r:a)try{n=max(n,stoi(r.v[0])+1);}catch(...){}return to_string(n);}
-string staffjson(const vector<Row>&a){string o="[";for(size_t i=0;i<a.size();++i){auto&v=a[i].v;if(i)o+=',';o+="{\"id\":"+v[0]+",\"firstName\":"+jstr(v[1])+",\"lastName\":"+jstr(v[2])+",\"title\":"+jstr(v[3])+",\"phone\":"+jstr(v[4])+",\"email\":"+jstr(v[5])+",\"branch\":"+jstr(v[6]);const char*keys[]={"canViewCustomers","canManageAccounts","canViewReports","canManageStaff","canAddEmployees","canDeleteEmployees"};for(int k=0;k<6;k++)o+=string(",\"")+keys[k]+"\":"+(v[k+7]=="1"?"true":"false");o+='}';}return o+"]";}
-string custjson(const vector<Row>&a){string o="[";for(size_t i=0;i<a.size();i++){auto&v=a[i].v;if(i)o+=',';o+="{\"id\":"+v[0]+",\"cnic\":"+jstr(v[1])+",\"fullName\":"+jstr(v[2])+",\"accountType\":"+jstr(v[3])+",\"accountNumber\":"+jstr(v[4])+",\"balance\":"+v[5]+",\"active\":"+(v[6]=="1"?"true":"false")+'}';}return o+"]";}
-string simplejson(const vector<Row>&a,const vector<string>&keys){string o="[";for(size_t i=0;i<a.size();i++){if(i)o+=',';o+='{';for(size_t j=0;j<keys.size();j++){if(j)o+=',';o+=jstr(keys[j])+":"+(j==0?a[i].v[j]:jstr(a[i].v[j]));}o+='}';}return o+"]";}
-void err(Response&r,int code,const string&m){r.status=code;r.set_content("{\"error\":"+jstr(m)+"}","application/json");}
-int main(){Server s;s.set_default_headers({{"Access-Control-Allow-Origin","*"},{"Access-Control-Allow-Methods","GET, POST, PUT, DELETE, OPTIONS"},{"Access-Control-Allow-Headers","Content-Type"}});s.Options(R"(/api/.*)",[](const Request&,Response&r){r.status=204;});
-s.Get("/api/status",[](const Request&,Response&r){r.set_content(R"({"status":"running"})","application/json");});
-s.Get("/api/staff",[](const Request&,Response&r){r.set_content(staffjson(read(STAFF,13)),"application/json");});
-s.Post("/api/staff",[](const Request&q,Response&r){vector<string>v={val(q,"firstName"),val(q,"lastName"),val(q,"title"),val(q,"phone"),val(q,"email"),val(q,"branch")};for(auto&x:v)if(!safe(x)){err(r,400,"Invalid field characters.");return;}if(v[0].empty()||v[1].empty()||v[2].empty()||v[4].empty()){err(r,400,"First name, last name, title and email are required.");return;}auto a=read(STAFF,13);Row x;x.v.push_back(nextid(a));x.v.insert(x.v.end(),v.begin(),v.end());x.v.insert(x.v.end(),{"1","0","0","0","0","0"});a.push_back(x);if(!save(STAFF,a)){err(r,500,"Could not save staff data.");return;}r.status=201;r.set_content(staffjson({x}),"application/json");});
-s.Delete(R"(/api/staff/(\d+))",[](const Request&q,Response&r){string id=q.matches[1];auto a=read(STAFF,13);auto n=a.size();a.erase(remove_if(a.begin(),a.end(),[&](auto&x){return x.v[0]==id;}),a.end());if(a.size()==n){err(r,404,"Employee not found.");return;}if(!save(STAFF,a)){err(r,500,"Could not save staff data.");return;}r.set_content(R"({"success":true})","application/json");});
-s.Post(R"(/api/staff/(\d+)/permissions)",[](const Request&q,Response&r){string id=q.matches[1];auto a=read(STAFF,13);auto it=find_if(a.begin(),a.end(),[&](auto&x){return x.v[0]==id;});if(it==a.end()){err(r,404,"Employee not found.");return;}const char*ks[]={"canViewCustomers","canManageAccounts","canViewReports","canManageStaff","canAddEmployees","canDeleteEmployees"};for(int i=0;i<6;i++){string x=val(q,ks[i]);if(x!="0"&&x!="1"){err(r,400,"All six permission values are required.");return;}it->v[i+7]=x;}if(!save(STAFF,a)){err(r,500,"Could not save permissions.");return;}r.set_content(staffjson({*it}),"application/json");});
-s.Get("/api/customers",[](const Request&q,Response&r){auto a=read(CUSTOMERS,7);if(q.has_param("cnic")){string c=val(q,"cnic");a.erase(remove_if(a.begin(),a.end(),[&](auto&x){return x.v[1]!=c;}),a.end());}r.set_content(custjson(a),"application/json");});
-s.Post("/api/customers",[](const Request&q,Response&r){vector<string>v={val(q,"cnic"),val(q,"fullName"),val(q,"accountType"),val(q,"accountNumber"),val(q,"balance"),"1"};for(auto&x:v)if(!safe(x)){err(r,400,"Invalid customer fields.");return;}if(v[0].empty()||v[1].empty()||v[3].empty()){err(r,400,"Required customer fields are missing.");return;}try{if(stod(v[4])<0)throw 1;}catch(...){err(r,400,"Balance must be a non-negative number.");return;}auto a=read(CUSTOMERS,7);for(auto&x:a)if(x.v[1]==v[0]||x.v[4]==v[3]){err(r,409,"CNIC or account number already exists.");return;}Row x;x.v={nextid(a)};x.v.insert(x.v.end(),v.begin(),v.end());a.push_back(x);if(!save(CUSTOMERS,a)){err(r,500,"Could not save customers.");return;}r.status=201;r.set_content(custjson({x}),"application/json");});
-s.Post(R"(/api/customers/(\d+)/status)",[](const Request&q,Response&r){string id=q.matches[1],active=val(q,"active");if(active!="0"&&active!="1"){err(r,400,"active must be 0 or 1");return;}auto a=read(CUSTOMERS,7);auto it=find_if(a.begin(),a.end(),[&](auto&x){return x.v[0]==id;});if(it==a.end()){err(r,404,"Customer not found");return;}it->v[6]=active;if(!save(CUSTOMERS,a)){err(r,500,"Could not save status");return;}r.set_content(custjson({*it}),"application/json");});
-s.Get("/api/accounts",[](const Request&,Response&r){auto a=read(ACCOUNTS,5);string o="[";for(size_t i=0;i<a.size();i++){auto&v=a[i].v;if(i)o+=',';o+="{\"id\":"+v[0]+",\"cnic\":"+jstr(v[1])+",\"accountNumber\":"+jstr(v[2])+",\"accountType\":"+jstr(v[3])+",\"active\":"+(v[4]=="1"?"true":"false")+'}';}r.set_content(o+"]","application/json");});
-s.Post("/api/accounts",[](const Request&q,Response&r){string c=val(q,"cnic"),num=val(q,"accountNumber"),type=val(q,"accountType");auto cs=read(CUSTOMERS,7);if(find_if(cs.begin(),cs.end(),[&](auto&x){return x.v[1]==c;})==cs.end()){err(r,404,"Customer CNIC not found");return;}auto a=read(ACCOUNTS,5);for(auto&x:a)if(x.v[2]==num){err(r,409,"Account number already exists");return;}Row x;x.v={nextid(a),c,num,type,"1"};a.push_back(x);if(!save(ACCOUNTS,a)){err(r,500,"Could not save account");return;}r.status=201;r.set_content(R"({"success":true})","application/json");});
-s.Post(R"(/api/accounts/(\d+)/status)",[](const Request&q,Response&r){string id=q.matches[1],active=val(q,"active");if(active!="0"&&active!="1"){err(r,400,"active must be 0 or 1");return;}auto a=read(ACCOUNTS,5);auto it=find_if(a.begin(),a.end(),[&](auto&x){return x.v[0]==id;});if(it==a.end()){err(r,404,"Account not found");return;}it->v[4]=active;if(!save(ACCOUNTS,a)){err(r,500,"Could not save account status");return;}r.set_content(R"({"success":true})","application/json");});
-s.Get("/api/branches",[](const Request&,Response&r){auto a=read(BRANCHES,5);r.set_content(simplejson(a,{"id","name","code","address","manager"}),"application/json");});
-s.Post("/api/branches",[](const Request&q,Response&r){vector<string>v={val(q,"name"),val(q,"code"),val(q,"address"),val(q,"manager")};for(auto&x:v)if(!safe(x)){err(r,400,"Invalid branch fields");return;}if(v[0].empty()||v[1].empty()){err(r,400,"Branch name and code are required");return;}auto a=read(BRANCHES,5);for(auto&x:a)if(x.v[2]==v[1]){err(r,409,"Branch code already exists");return;}Row x;x.v={nextid(a)};x.v.insert(x.v.end(),v.begin(),v.end());a.push_back(x);if(!save(BRANCHES,a)){err(r,500,"Could not save branch");return;}r.status=201;r.set_content(R"({"success":true})","application/json");});
-cout<<"Bank Admin Portal API listening on 0.0.0.0:8080"<<endl;if(!s.listen("0.0.0.0",8080)){cerr<<"Server failed to start"<<endl;return 1;}return 0;}
+using namespace std;
+using namespace httplib;
+
+const string STAFF_FILE="staff.txt", CUSTOMER_FILE="customers.txt", ACCOUNT_FILE="accounts.txt", BRANCH_FILE="branches.txt";
+
+string clean(string s){ for(char &c:s) if(c=='|'||c=='\n'||c=='\r') c=' '; return s; }
+string esc(const string&s){string o;for(unsigned char c:s){switch(c){case '"':o+="\\\"";break;case '\\':o+="\\\\";break;case '\n':o+="\\n";break;case '\r':o+="\\r";break;case '\t':o+="\\t";break;default:if(c<32){char b[8];snprintf(b,sizeof(b),"\\u%04x",c);o+=b;}else o+=(char)c;}}return o;}
+string js(const string&s){return "\""+esc(s)+"\"";}
+vector<string> split(const string&s){vector<string>v;stringstream ss(s);string x;while(getline(ss,x,'|'))v.push_back(x);if(!s.empty()&&s.back()=='|')v.push_back("");return v;}
+vector<vector<string>> readFile(const string&f){vector<vector<string>>v;ifstream in(f);string l;while(getline(in,l))if(!l.empty())v.push_back(split(l));return v;}
+bool saveFile(const string&f,const vector<vector<string>>&v){string t=f+".tmp";ofstream o(t);if(!o)return false;for(auto&r:v){for(size_t i=0;i<r.size();i++){if(i)o<<'|';o<<clean(r[i]);}o<<'\n';}o.close();if(!o)return false;remove(f.c_str());return rename(t.c_str(),f.c_str())==0;}
+string p(const Request&r,const string&k){return r.has_param(k)?clean(r.get_param_value(k)):"";}
+string idFor(const vector<vector<string>>&v,const string&prefix){int n=0;for(auto&r:v)if(!r.empty()){string d;for(char c:r[0])if(isdigit((unsigned char)c))d+=c;try{if(!d.empty())n=max(n,stoi(d));}catch(...){}}return prefix+to_string(n+1);}
+string rowsJson(const vector<vector<string>>&v){string o="[";for(size_t i=0;i<v.size();i++){if(i)o+=",";o+="[";for(size_t j=0;j<v[i].size();j++){if(j)o+=",";o+=js(v[i][j]);}o+="]";}return o+"]";}
+void json(Response&r,const string&s,int status=200){r.status=status;r.set_content(s,"application/json; charset=utf-8");}
+bool hasCnic(const vector<vector<string>>&v,const string&c){for(auto&r:v)if(r.size()>1&&r[1]==c)return true;return false;}
+bool hasAccount(const vector<vector<string>>&v,const string&n){for(auto&r:v)if(r.size()>2&&r[2]==n)return true;return false;}
+string newAccountNo(const vector<vector<string>>&v){static mt19937_64 g((uint64_t)chrono::steady_clock::now().time_since_epoch().count());uniform_int_distribution<unsigned long long>d(100000000000ULL,999999999999ULL);for(int i=0;i<10000;i++){string n=to_string(d(g));if(!hasAccount(v,n))return n;}return "";}
+bool validCnic(const string&c){string d;for(char x:c)if(isdigit((unsigned char)x))d+=x;return d.size()==13;}
+void cors(Server&s){
+ s.set_pre_routing_handler([](const Request&,Response&r){r.set_header("Access-Control-Allow-Origin","*");r.set_header("Access-Control-Allow-Methods","GET, POST, PUT, DELETE, OPTIONS");r.set_header("Access-Control-Allow-Headers","Content-Type");return Server::HandlerResponse::Unhandled;});
+ s.Options(R"(.*)",[](const Request&,Response&r){r.status=204;});
+}
+int main(){
+ Server s;cors(s);
+ s.Get("/api/status",[](const Request&,Response&r){json(r,R"({"status":"ok","message":"API running"})");});
+
+ // STAFF: [id, first, last, title, email, phone, branch, six permission flags]
+ s.Get("/api/staff",[](const Request&,Response&r){json(r,rowsJson(readFile(STAFF_FILE)));});
+ s.Post("/api/staff",[](const Request&q,Response&r){auto v=readFile(STAFF_FILE);if(p(q,"firstName").empty()||p(q,"lastName").empty())return json(r,R"({"error":"First and last name are required"})",400);
+ v.push_back({idFor(v,"S"),p(q,"firstName"),p(q,"lastName"),p(q,"jobTitle"),p(q,"email"),p(q,"phone"),p(q,"branch"),p(q,"canViewCustomers"),p(q,"canManageAccounts"),p(q,"canViewReports"),p(q,"canManageStaff"),p(q,"canAddEmployees"),p(q,"canDeleteEmployees")});
+ if(!saveFile(STAFF_FILE,v))return json(r,R"({"error":"Unable to save staff"})",500);json(r,R"({"success":true})",201);});
+ s.Delete(R"(/api/staff/([A-Za-z0-9_-]+))",[](const Request&q,Response&r){string id=q.matches[1];auto v=readFile(STAFF_FILE);auto n=v.size();v.erase(remove_if(v.begin(),v.end(),[&](auto&a){return !a.empty()&&a[0]==id;}),v.end());if(n==v.size())return json(r,R"({"error":"Staff not found"})",404);if(!saveFile(STAFF_FILE,v))return json(r,R"({"error":"Save failed"})",500);json(r,R"({"success":true})");});
+
+ // CUSTOMER: [id, CNIC, name, father, mother, DOB, email, phone, address, branch, type, primary account no, balance, status]
+ s.Get("/api/customers",[](const Request&,Response&r){json(r,rowsJson(readFile(CUSTOMER_FILE)));});
+ s.Post("/api/customers",[](const Request&q,Response&r){auto c=readFile(CUSTOMER_FILE);auto a=readFile(ACCOUNT_FILE);string cn=p(q,"cnic"),name=p(q,"fullName");
+ if(!validCnic(cn))return json(r,R"({"error":"CNIC must be exactly 13 digits"})",400);
+ if(hasCnic(c,cn))return json(r,R"({"error":"CNIC already exists. Use Open New Account for this customer."})",409);
+ if(name.empty())return json(r,R"({"error":"Customer name is required"})",400);
+ string bal=p(q,"initialBalance");if(bal.empty())bal="0";try{if(stod(bal)<0)throw 1;}catch(...){return json(r,R"({"error":"Initial balance must be zero or greater"})",400);}
+ string no=newAccountNo(a);if(no.empty())return json(r,R"({"error":"Could not generate account number"})",500);
+ string cid=idFor(c,"C"),aid=idFor(a,"A"),type=p(q,"accountType");if(type.empty())type="Savings";
+ c.push_back({cid,cn,name,p(q,"fatherName"),p(q,"motherName"),p(q,"dob"),p(q,"email"),p(q,"phone"),p(q,"address"),p(q,"branch"),type,no,bal,"Active"});
+ a.push_back({aid,cn,no,type,"Active",bal});
+ if(!saveFile(CUSTOMER_FILE,c)||!saveFile(ACCOUNT_FILE,a))return json(r,R"({"error":"Could not save customer/account"})",500);
+ json(r,"{\"success\":true,\"customerId\":"+js(cid)+",\"accountNumber\":"+js(no)+"}",201);});
+ s.Put(R"(/api/customers/([A-Za-z0-9_-]+))",[](const Request&q,Response&r){string id=q.matches[1];auto v=readFile(CUSTOMER_FILE);bool ok=false;for(auto&x:v)if(!x.empty()&&x[0]==id){x.resize(max<size_t>(14,x.size()));x[2]=p(q,"fullName");x[3]=p(q,"fatherName");x[4]=p(q,"motherName");x[5]=p(q,"dob");x[6]=p(q,"email");x[7]=p(q,"phone");x[8]=p(q,"address");x[9]=p(q,"branch");x[10]=p(q,"accountType");x[12]=p(q,"balance");ok=true;}if(!ok)return json(r,R"({"error":"Customer not found"})",404);if(!saveFile(CUSTOMER_FILE,v))return json(r,R"({"error":"Save failed"})",500);json(r,R"({"success":true})");});
+ s.Put(R"(/api/customers/([A-Za-z0-9_-]+)/status)",[](const Request&q,Response&r){string id=q.matches[1],st=p(q,"status");if(st!="Active"&&st!="Inactive")return json(r,R"({"error":"Invalid status"})",400);auto v=readFile(CUSTOMER_FILE);bool ok=false;for(auto&x:v)if(!x.empty()&&x[0]==id){x.resize(max<size_t>(14,x.size()));x[13]=st;ok=true;}if(!ok)return json(r,R"({"error":"Customer not found"})",404);if(!saveFile(CUSTOMER_FILE,v))return json(r,R"({"error":"Save failed"})",500);json(r,R"({"success":true})");});
+ s.Delete(R"(/api/customers/([A-Za-z0-9_-]+))",[](const Request&q,Response&r){string id=q.matches[1],cn;auto c=readFile(CUSTOMER_FILE);for(auto&x:c)if(!x.empty()&&x[0]==id&&x.size()>1)cn=x[1];if(cn.empty())return json(r,R"({"error":"Customer not found"})",404);c.erase(remove_if(c.begin(),c.end(),[&](auto&x){return !x.empty()&&x[0]==id;}),c.end());auto a=readFile(ACCOUNT_FILE);a.erase(remove_if(a.begin(),a.end(),[&](auto&x){return x.size()>1&&x[1]==cn;}),a.end());if(!saveFile(CUSTOMER_FILE,c)||!saveFile(ACCOUNT_FILE,a))return json(r,R"({"error":"Delete failed"})",500);json(r,R"({"success":true})");});
+
+ // ACCOUNTS: [id, customer CNIC, generated number, type, status, balance]
+ s.Get("/api/accounts",[](const Request&,Response&r){json(r,rowsJson(readFile(ACCOUNT_FILE)));});
+ s.Post("/api/accounts",[](const Request&q,Response&r){auto c=readFile(CUSTOMER_FILE);auto a=readFile(ACCOUNT_FILE);string cn=p(q,"cnic");if(!hasCnic(c,cn))return json(r,R"({"error":"Customer CNIC not found; create customer first"})",404);string bal=p(q,"initialBalance");if(bal.empty())bal="0";try{if(stod(bal)<0)throw 1;}catch(...){return json(r,R"({"error":"Initial balance must be zero or greater"})",400);}string no=newAccountNo(a);if(no.empty())return json(r,R"({"error":"Could not generate account number"})",500);string type=p(q,"accountType");if(type.empty())return json(r,R"({"error":"Account type required"})",400);a.push_back({idFor(a,"A"),cn,no,type,"Active",bal});if(!saveFile(ACCOUNT_FILE,a))return json(r,R"({"error":"Could not save account"})",500);json(r,"{\"success\":true,\"accountNumber\":"+js(no)+"}",201);});
+ s.Put(R"(/api/accounts/([A-Za-z0-9_-]+)/status)",[](const Request&q,Response&r){string id=q.matches[1],st=p(q,"status");if(st!="Active"&&st!="Inactive")return json(r,R"({"error":"Invalid status"})",400);auto a=readFile(ACCOUNT_FILE);bool ok=false;for(auto&x:a)if(!x.empty()&&x[0]==id){x.resize(max<size_t>(6,x.size()));x[4]=st;ok=true;}if(!ok)return json(r,R"({"error":"Account not found"})",404);if(!saveFile(ACCOUNT_FILE,a))return json(r,R"({"error":"Save failed"})",500);json(r,R"({"success":true})");});
+
+ // BRANCHES: [id, name, code, address, manager]
+ s.Get("/api/branches",[](const Request&,Response&r){json(r,rowsJson(readFile(BRANCH_FILE)));});
+ s.Post("/api/branches",[](const Request&q,Response&r){auto v=readFile(BRANCH_FILE);if(p(q,"name").empty())return json(r,R"({"error":"Branch name required"})",400);v.push_back({idFor(v,"B"),p(q,"name"),p(q,"code"),p(q,"address"),p(q,"manager")});if(!saveFile(BRANCH_FILE,v))return json(r,R"({"error":"Save failed"})",500);json(r,R"({"success":true})",201);});
+
+ cout<<"Bank Admin Portal API listening on port 8080"<<endl;s.listen("0.0.0.0",8080);
+}
