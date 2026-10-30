@@ -1,103 +1,12 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Bank Admin Portal</title>
-  <link rel="stylesheet" href="style.css">
-  <style>
-    .panel { margin: 20px auto; max-width: 1100px; }
-    .customer-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
-    .customer-details { padding: 16px; border: 1px solid #d1d5db; border-radius: 10px; margin-top: 12px; }
-    .status-active { color: #15803d; font-weight: 700; }
-    .status-inactive { color: #dc2626; font-weight: 700; }
-    .muted { color: #6b7280; }
-    .panel input, .panel select, .panel button { margin: 5px 0; }
-    .panel button { cursor: pointer; }
-    #customerMessage, #message, #permissionsMessage { min-height: 1.3em; }
-  </style>
-</head>
-<body>
-  <header>
-    <h1>Bank Admin Portal</h1>
-    <p>Employee Management System</p>
-  </header>
-
-  <main>
-    <section class="panel">
-      <h2>Staff Directory</h2>
-      <div class="search">
-        <input id="firstSearch" placeholder="Search first name" aria-label="Search first name">
-        <input id="lastSearch" placeholder="Search last name" aria-label="Search last name">
-        <input id="locationSearch" placeholder="Search branch location" aria-label="Search branch location">
-      </div>
-
-      <h3>Add New Employee</h3>
-      <form id="employeeForm">
-        <input id="firstName" placeholder="First name" required>
-        <input id="lastName" placeholder="Last name" required>
-        <input id="jobTitle" placeholder="Working title" required>
-        <input id="email" type="email" placeholder="Email address" required>
-        <input id="phone" placeholder="Contact number">
-        <input id="location" placeholder="Branch location" required>
-        <button type="submit">Add Employee</button>
-      </form>
-      <p id="message" role="status" aria-live="polite"></p>
-
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>First Name</th><th>Last Name</th><th>Working Title</th><th>Email</th><th>Contact</th><th>Branch</th><th>Access</th><th>Action</th></tr></thead>
-          <tbody id="employeeList"></tbody>
-        </table>
-      </div>
-    </section>
-
-    <section id="staffAccessSection" class="panel">
-      <h2>Staff Access &amp; Permissions</h2>
-      <p>Employee ki permissions dekhne aur update karne ke liye:</p>
-      <label for="accessEmployee">Select Employee:</label>
-      <select id="accessEmployee" required><option value="">Select an employee</option></select>
-      <form id="permissionsForm">
-        <div class="customer-grid">
-          <label><input type="checkbox" id="canViewCustomers"> View Customers</label>
-          <label><input type="checkbox" id="canManageAccounts"> Manage Accounts</label>
-          <label><input type="checkbox" id="canViewReports"> View Reports</label>
-          <label><input type="checkbox" id="canManageStaff"> Manage Staff</label>
-          <label><input type="checkbox" id="canAddEmployees"> Add Employees</label>
-          <label><input type="checkbox" id="canDeleteEmployees"> Delete Employees</label>
-        </div>
-        <button type="submit" id="savePermissions">Save Permissions</button>
-        <p id="permissionsMessage" role="status"></p>
-      </form>
-    </section>
-
-    <section id="customerSection" class="panel">
-      <h2>Bank Customers / Service Users</h2>
-      <p>Customer ka CNIC enter karke account details dekhein. Demo records sirf testing ke liye hain.</p>
-      <form id="customerSearchForm">
-        <label for="customerCnic">Search customer by CNIC</label><br>
-        <input id="customerCnic" placeholder="00000-0000001-0" required>
-        <button type="submit">Search Customer</button>
-      </form>
-      <p id="customerMessage" role="status" aria-live="polite"></p>
-      <div id="customerResult"><p class="muted">CNIC se customer search karein.</p></div>
-
-      <hr>
-      <h3>Add Customer (Demo / Coursework)</h3>
-      <form id="customerForm" class="customer-grid">
-        <input id="newCustomerCnic" placeholder="CNIC e.g. 00000-0000003-0" required>
-        <input id="customerFullName" placeholder="Customer full name" required>
-        <select id="accountType" required>
-          <option value="">Select account type</option>
-          <option value="Savings">Savings</option>
-          <option value="Current">Current</option>
-        </select>
-        <input id="accountNumber" placeholder="Account number" required>
-        <input id="customerBalance" type="number" min="0" step="0.01" placeholder="Balance (PKR)" required>
-        <button type="submit">Add Customer</button>
-      </form>
-    </section>
-  </main>
-  <script src="script.js"></script>
-</body>
-</html>
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bank Admin Portal</title><link rel="stylesheet" href="style.css"></head>
+<body><aside class="sidebar"><h2>🏦 Bank Admin</h2><nav id="nav"><button data-page="dashboard" class="active">Dashboard</button><button data-page="staff">Staff Directory</button><button data-page="permissions">Staff Access</button><button data-page="customers">Customers</button><button data-page="accounts">Accounts</button><button data-page="branches">Branches</button><button data-page="reports">Reports</button></nav><p class="side-note">Coursework demo only</p></aside>
+<main><header><div><h1 id="pageTitle">Dashboard</h1><p>Bank Management System · Admin Portal</p></div><span id="apiState" class="pill">Connecting…</span></header>
+<section id="dashboard" class="page active"><div class="stats"><article><small>Employees</small><strong id="statStaff">—</strong></article><article><small>Customers</small><strong id="statCustomers">—</strong></article><article><small>Accounts</small><strong id="statAccounts">—</strong></article><article><small>Branches</small><strong id="statBranches">—</strong></article></div><article class="panel"><h2>Welcome</h2><p>Use the left menu to manage staff, permissions, customer demo records, accounts and branches.</p><p class="warning">Do not enter real CNICs, customer data, passwords or banking information. This is not production banking software.</p></article></section>
+<section id="staff" class="page"><article class="panel"><h2>Staff Directory</h2><div class="filters"><input id="firstSearch" placeholder="Search first name"><input id="lastSearch" placeholder="Search last name"><input id="locationSearch" placeholder="Search branch"></div><form id="employeeForm" class="form-grid"><input id="firstName" placeholder="First name" required><input id="lastName" placeholder="Last name" required><input id="jobTitle" placeholder="Working title" required><input id="email" type="email" placeholder="Email" required><input id="phone" placeholder="Contact"><input id="location" placeholder="Branch location" required><button>Add Employee</button></form><p id="staffMessage" class="message"></p><div class="table-wrap"><table><thead><tr><th>First</th><th>Last</th><th>Title</th><th>Email</th><th>Contact</th><th>Branch</th><th>Access</th><th>Action</th></tr></thead><tbody id="employeeList"></tbody></table></div></article></section>
+<section id="permissions" class="page"><article class="panel"><h2>Staff Access & Permissions</h2><select id="accessEmployee"><option value="">Select employee</option></select><form id="permissionsForm" class="checks"><label><input type="checkbox" id="canViewCustomers"> View customers</label><label><input type="checkbox" id="canManageAccounts"> Manage accounts</label><label><input type="checkbox" id="canViewReports"> View reports</label><label><input type="checkbox" id="canManageStaff"> Manage staff</label><label><input type="checkbox" id="canAddEmployees"> Add employees</label><label><input type="checkbox" id="canDeleteEmployees"> Delete employees</label><button>Save permissions</button></form><p id="permissionMessage" class="message"></p><p class="warning">Demo permissions are stored as staff data only. They are not secure server-side authorization.</p></article></section>
+<section id="customers" class="page"><article class="panel"><h2>Customers</h2><form id="customerSearchForm" class="filters"><input id="customerCnic" placeholder="Demo CNIC" required><button>Search</button></form><p id="customerMessage" class="message"></p><div id="customerResult"></div><hr><h3>Add demo customer</h3><form id="customerForm" class="form-grid"><input id="newCustomerCnic" placeholder="Demo CNIC" required><input id="customerFullName" placeholder="Full name" required><select id="accountType"><option>Savings</option><option>Current</option></select><input id="accountNumber" placeholder="Account number" required><input id="customerBalance" type="number" min="0" step="0.01" placeholder="Demo balance" required><button>Add customer</button></form></article></section>
+<section id="accounts" class="page"><article class="panel"><h2>Account Management</h2><p>Open a demo account for an existing customer. No deposits, withdrawals, transfers or transaction history are included.</p><form id="accountForm" class="form-grid"><input id="accountCustomerCnic" placeholder="Customer CNIC" required><input id="newAccountNumber" placeholder="Unique account number" required><select id="newAccountType"><option>Savings</option><option>Current</option></select><button>Create account</button></form><p id="accountMessage" class="message"></p><div class="table-wrap"><table><thead><tr><th>Account</th><th>Customer CNIC</th><th>Type</th><th>Status</th><th>Action</th></tr></thead><tbody id="accountList"></tbody></table></div></article></section>
+<section id="branches" class="page"><article class="panel"><h2>Branch Management</h2><form id="branchForm" class="form-grid"><input id="branchName" placeholder="Branch name" required><input id="branchCode" placeholder="Branch code" required><input id="branchAddress" placeholder="Address"><input id="branchManager" placeholder="Manager"><button>Add branch</button></form><p id="branchMessage" class="message"></p><div id="branchList" class="cards"></div></article></section>
+<section id="reports" class="page"><article class="panel"><h2>Reports</h2><div id="reportSummary" class="stats"></div><p>Summary reports only; no transaction or audit reports.</p></article></section>
+<footer>Educational demo · Not for real banking use</footer></main><script src="script.js"></script></body></html>
