@@ -1,553 +1,73 @@
-
 #include "httplib.h"
-#include <iostream>
-#include <fstream>
-#include <sstream>
-#include <vector>
-#include <string>
 #include <algorithm>
+#include <cctype>
+#include <chrono>
 #include <cstdio>
+#include <fstream>
+#include <iostream>
+#include <random>
+#include <sstream>
+#include <string>
+#include <vector>
 using namespace std;
 using namespace httplib;
 
-const string STAFF_FILE = "staff.txt";
-const string CUSTOMER_FILE = "customers.txt";
-const string ACCOUNT_FILE = "accounts.txt";
+const string STAFF_FILE="staff.txt", CUSTOMER_FILE="customers.txt", ACCOUNT_FILE="accounts.txt", BRANCH_FILE="branches.txt";
 
-struct Row {
-    vector<string> data;
-};
-
-string jsonEscape(const string& s) {
-    string out;
-    for (char c : s) {
-        if (c == '"') out += "\\\"";
-        else if (c == '\\') out += "\\\\";
-        else if (c == '\n') out += "\\n";
-        else if (c == '\r') out += "\\r";
-        else if ((unsigned char)c >= 32) out += c;
-    }
-    return out;
+string clean(string s){ for(char &c:s) if(c=='|'||c=='\n'||c=='\r') c=' '; return s; }
+string esc(const string&s){string o;for(unsigned char c:s){switch(c){case '"':o+="\\\"";break;case '\\':o+="\\\\";break;case '\n':o+="\\n";break;case '\r':o+="\\r";break;case '\t':o+="\\t";break;default:if(c<32){char b[8];snprintf(b,sizeof(b),"\\u%04x",c);o+=b;}else o+=(char)c;}}return o;}
+string js(const string&s){return "\""+esc(s)+"\"";}
+vector<string> split(const string&s){vector<string>v;stringstream ss(s);string x;while(getline(ss,x,'|'))v.push_back(x);if(!s.empty()&&s.back()=='|')v.push_back("");return v;}
+vector<vector<string>> readFile(const string&f){vector<vector<string>>v;ifstream in(f);string l;while(getline(in,l))if(!l.empty())v.push_back(split(l));return v;}
+bool saveFile(const string&f,const vector<vector<string>>&v){string t=f+".tmp";ofstream o(t);if(!o)return false;for(auto&r:v){for(size_t i=0;i<r.size();i++){if(i)o<<'|';o<<clean(r[i]);}o<<'\n';}o.close();if(!o)return false;remove(f.c_str());return rename(t.c_str(),f.c_str())==0;}
+string p(const Request&r,const string&k){return r.has_param(k)?clean(r.get_param_value(k)):"";}
+string idFor(const vector<vector<string>>&v,const string&prefix){int n=0;for(auto&r:v)if(!r.empty()){string d;for(char c:r[0])if(isdigit((unsigned char)c))d+=c;try{if(!d.empty())n=max(n,stoi(d));}catch(...){}}return prefix+to_string(n+1);}
+string rowsJson(const vector<vector<string>>&v){string o="[";for(size_t i=0;i<v.size();i++){if(i)o+=",";o+="[";for(size_t j=0;j<v[i].size();j++){if(j)o+=",";o+=js(v[i][j]);}o+="]";}return o+"]";}
+void json(Response&r,const string&s,int status=200){r.status=status;r.set_content(s,"application/json; charset=utf-8");}
+bool hasCnic(const vector<vector<string>>&v,const string&c){for(auto&r:v)if(r.size()>1&&r[1]==c)return true;return false;}
+bool hasAccount(const vector<vector<string>>&v,const string&n){for(auto&r:v)if(r.size()>2&&r[2]==n)return true;return false;}
+string newAccountNo(const vector<vector<string>>&v){static mt19937_64 g((uint64_t)chrono::steady_clock::now().time_since_epoch().count());uniform_int_distribution<unsigned long long>d(100000000000ULL,999999999999ULL);for(int i=0;i<10000;i++){string n=to_string(d(g));if(!hasAccount(v,n))return n;}return "";}
+bool validCnic(const string&c){string d;for(char x:c)if(isdigit((unsigned char)x))d+=x;return d.size()==13;}
+void cors(Server&s){
+ s.set_pre_routing_handler([](const Request&,Response&r){r.set_header("Access-Control-Allow-Origin","*");r.set_header("Access-Control-Allow-Methods","GET, POST, PUT, DELETE, OPTIONS");r.set_header("Access-Control-Allow-Headers","Content-Type");return Server::HandlerResponse::Unhandled;});
+ s.Options(R"(.*)",[](const Request&,Response&r){r.status=204;});
 }
-
-string js(const string& s) {
-    return "\"" + jsonEscape(s) + "\"";
-}
-
-string getValue(const Request& req, const string& key) {
-    return req.has_param(key) ? req.get_param_value(key) : "";
-}
-
-bool safeValue(const string& s) {
-    return s.find('|') == string::npos &&
-           s.find('\n') == string::npos &&
-           s.find('\r') == string::npos;
-}
-
-vector<Row> readFile(const string& file, int expected) {
-    vector<Row> rows;
-    ifstream in(file);
-    string line;
-
-    while (getline(in, line)) {
-        stringstream ss(line);
-        string value;
-        Row row;
-
-        while (getline(ss, value, '|'))
-            row.data.push_back(value);
-
-        // Old customer format:
-        // id|cnic|name|accountType|accountNumber|balance|active
-        if (file == CUSTOMER_FILE && row.data.size() == 7) {
-            auto old = row.data;
-            row.data = {
-                old[0], old[1], old[2],
-                "", "", "", "", "", "",
-                old[3], old[4], old[5], old[6]
-            };
-        }
-
-        // Old staff format: 11 fields
-        if (file == STAFF_FILE && row.data.size() == 11) {
-            row.data.push_back("0");
-            row.data.push_back("0");
-        }
-
-        if ((int)row.data.size() == expected)
-            rows.push_back(row);
-    }
-
-    return rows;
-}
-
-bool saveFile(const string& file, const vector<Row>& rows) {
-    string temp = file + ".tmp";
-
-    {
-        ofstream out(temp);
-        if (!out) return false;
-
-        for (const auto& row : rows) {
-            for (size_t i = 0; i < row.data.size(); i++) {
-                if (i) out << "|";
-                out << row.data[i];
-            }
-            out << "\n";
-        }
-
-        if (!out.good()) return false;
-    }
-
-    if (rename(temp.c_str(), file.c_str()) != 0) {
-        remove(temp.c_str());
-        return false;
-    }
-
-    return true;
-}
-
-string nextId(const vector<Row>& rows) {
-    int highest = 0;
-
-    for (const auto& r : rows) {
-        try {
-            highest = max(highest, stoi(r.data[0]));
-        } catch (...) {}
-    }
-
-    return to_string(highest + 1);
-}
-
-string nextAccountNumber(
-    const vector<Row>& customers,
-    const vector<Row>& accounts
-) {
-    unsigned long long highest = 100000000000ULL;
-
-    for (const auto& r : customers) {
-        try {
-            highest = max(highest, stoull(r.data[10]));
-        } catch (...) {}
-    }
-
-    for (const auto& r : accounts) {
-        try {
-            highest = max(highest, stoull(r.data[2]));
-        } catch (...) {}
-    }
-
-    return to_string(highest + 1);
-}
-
-void sendError(Response& res, int code, string message) {
-    res.status = code;
-    res.set_content(
-        "{\"error\":" + js(message) + "}",
-        "application/json"
-    );
-}
-
-string customersJSON(const vector<Row>& rows) {
-    string out = "[";
-
-    for (size_t i = 0; i < rows.size(); i++) {
-        const auto& v = rows[i].data;
-
-        if (i) out += ",";
-
-        out +=
-            "{\"id\":" + v[0] +
-            ",\"cnic\":" + js(v[1]) +
-            ",\"fullName\":" + js(v[2]) +
-            ",\"fatherName\":" + js(v[3]) +
-            ",\"motherName\":" + js(v[4]) +
-            ",\"dob\":" + js(v[5]) +
-            ",\"phone\":" + js(v[6]) +
-            ",\"address\":" + js(v[7]) +
-            ",\"branch\":" + js(v[8]) +
-            ",\"accountType\":" + js(v[9]) +
-            ",\"accountNumber\":" + js(v[10]) +
-            ",\"balance\":" + v[11] +
-            ",\"active\":" + string(v[12] == "1" ? "true" : "false") +
-            "}";
-    }
-
-    return out + "]";
-}
-
-int main() {
-    Server server;
-
-    server.set_default_headers({
-        {"Access-Control-Allow-Origin", "*"},
-        {"Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS"},
-        {"Access-Control-Allow-Headers", "Content-Type"}
-    });
-
-    server.Options(R"(/api/.*)", [](const Request&, Response& res) {
-        res.status = 204;
-    });
-
-    server.Get("/api/status", [](const Request&, Response& res) {
-        res.set_content(R"({"status":"running"})", "application/json");
-    });
-
-    // STAFF DIRECTORY
-    server.Get("/api/staff", [](const Request&, Response& res) {
-        auto rows = readFile(STAFF_FILE, 13);
-        string out = "[";
-
-        for (size_t i = 0; i < rows.size(); i++) {
-            auto& v = rows[i].data;
-            if (i) out += ",";
-
-            out += "{\"id\":" + v[0] +
-                ",\"firstName\":" + js(v[1]) +
-                ",\"lastName\":" + js(v[2]) +
-                ",\"title\":" + js(v[3]) +
-                ",\"phone\":" + js(v[4]) +
-                ",\"email\":" + js(v[5]) +
-                ",\"branch\":" + js(v[6]);
-
-            const char* keys[] = {
-                "canViewCustomers", "canManageAccounts",
-                "canViewReports", "canManageStaff",
-                "canAddEmployees", "canDeleteEmployees"
-            };
-
-            for (int k = 0; k < 6; k++)
-                out += string(",\"") + keys[k] + "\":" +
-                    (v[k + 7] == "1" ? "true" : "false");
-
-            out += "}";
-        }
-
-        res.set_content(out + "]", "application/json");
-    });
-
-    server.Post("/api/staff", [](const Request& req, Response& res) {
-        vector<string> v = {
-            getValue(req, "firstName"),
-            getValue(req, "lastName"),
-            getValue(req, "title"),
-            getValue(req, "phone"),
-            getValue(req, "email"),
-            getValue(req, "branch")
-        };
-
-        for (auto& x : v)
-            if (!safeValue(x)) {
-                sendError(res, 400, "Invalid field.");
-                return;
-            }
-
-        if (v[0].empty() || v[1].empty() ||
-            v[2].empty() || v[4].empty()) {
-            sendError(res, 400, "Required fields missing.");
-            return;
-        }
-
-        auto rows = readFile(STAFF_FILE, 13);
-        Row r;
-        r.data = {nextId(rows)};
-        r.data.insert(r.data.end(), v.begin(), v.end());
-        r.data.insert(r.data.end(), {"1","0","0","0","0","0"});
-
-        rows.push_back(r);
-
-        if (!saveFile(STAFF_FILE, rows)) {
-            sendError(res, 500, "Could not save employee.");
-            return;
-        }
-
-        res.status = 201;
-        res.set_content(R"({"success":true})", "application/json");
-    });
-
-    server.Delete(R"(/api/staff/(\d+))",
-    [](const Request& req, Response& res) {
-        string id = req.matches[1];
-        auto rows = readFile(STAFF_FILE, 13);
-        size_t oldSize = rows.size();
-
-        rows.erase(remove_if(rows.begin(), rows.end(),
-            [&](const Row& r) { return r.data[0] == id; }),
-            rows.end());
-
-        if (rows.size() == oldSize) {
-            sendError(res, 404, "Employee not found.");
-            return;
-        }
-
-        if (!saveFile(STAFF_FILE, rows)) {
-            sendError(res, 500, "Could not save staff data.");
-            return;
-        }
-
-        res.set_content(R"({"success":true})", "application/json");
-    });
-
-    server.Post(R"(/api/staff/(\d+)/permissions)",
-    [](const Request& req, Response& res) {
-        string id = req.matches[1];
-        auto rows = readFile(STAFF_FILE, 13);
-
-        auto it = find_if(rows.begin(), rows.end(),
-            [&](const Row& r) { return r.data[0] == id; });
-
-        if (it == rows.end()) {
-            sendError(res, 404, "Employee not found.");
-            return;
-        }
-
-        const char* keys[] = {
-            "canViewCustomers", "canManageAccounts",
-            "canViewReports", "canManageStaff",
-            "canAddEmployees", "canDeleteEmployees"
-        };
-
-        for (int i = 0; i < 6; i++) {
-            string value = getValue(req, keys[i]);
-
-            if (value != "0" && value != "1") {
-                sendError(res, 400, "Invalid permission.");
-                return;
-            }
-
-            it->data[i + 7] = value;
-        }
-
-        if (!saveFile(STAFF_FILE, rows)) {
-            sendError(res, 500, "Could not save permissions.");
-            return;
-        }
-
-        res.set_content(R"({"success":true})", "application/json");
-    });
-
-    // CUSTOMER SEARCH
-    server.Get("/api/customers", [](const Request& req, Response& res) {
-        auto rows = readFile(CUSTOMER_FILE, 13);
-
-        if (req.has_param("cnic")) {
-            string cnic = getValue(req, "cnic");
-
-            rows.erase(remove_if(rows.begin(), rows.end(),
-                [&](const Row& r) { return r.data[1] != cnic; }),
-                rows.end());
-        }
-
-        res.set_content(customersJSON(rows), "application/json");
-    });
-
-    // ADD CUSTOMER - ACCOUNT NUMBER IS AUTOMATIC
-    server.Post("/api/customers", [](const Request& req, Response& res) {
-        vector<string> v = {
-            getValue(req, "cnic"),
-            getValue(req, "fullName"),
-            getValue(req, "fatherName"),
-            getValue(req, "motherName"),
-            getValue(req, "dob"),
-            getValue(req, "phone"),
-            getValue(req, "address"),
-            getValue(req, "branch"),
-            getValue(req, "accountType"),
-            "",
-            getValue(req, "balance"),
-            "1"
-        };
-
-        for (auto& x : v)
-            if (!safeValue(x)) {
-                sendError(res, 400, "Invalid customer data.");
-                return;
-            }
-
-        if (v[0].empty() || v[1].empty()) {
-            sendError(res, 400, "CNIC and name are required.");
-            return;
-        }
-
-        try {
-            if (stod(v[10]) < 0) throw 1;
-        } catch (...) {
-            sendError(res, 400, "Invalid balance.");
-            return;
-        }
-
-        auto customers = readFile(CUSTOMER_FILE, 13);
-
-        for (auto& c : customers) {
-            if (c.data[1] == v[0]) {
-                sendError(res, 409, "CNIC already exists.");
-                return;
-            }
-        }
-
-        auto accounts = readFile(ACCOUNT_FILE, 5);
-
-        v[9] = v[9].empty() ? "Savings" : v[9];
-        v[10] = nextAccountNumber(customers, accounts);
-
-        Row customer;
-        customer.data = {nextId(customers)};
-        customer.data.insert(customer.data.end(), v.begin(), v.end());
-
-        customers.push_back(customer);
-
-        if (!saveFile(CUSTOMER_FILE, customers)) {
-            sendError(res, 500, "Could not save customer.");
-            return;
-        }
-
-        Row account;
-        account.data = {
-            nextId(accounts), v[0], v[10], v[9], "1"
-        };
-
-        accounts.push_back(account);
-
-        if (!saveFile(ACCOUNT_FILE, accounts)) {
-            sendError(res, 500, "Customer saved but account file failed.");
-            return;
-        }
-
-        res.status = 201;
-        res.set_content(customersJSON({customer}), "application/json");
-    });
-
-    // EDIT CUSTOMER - CNIC AND ACCOUNT NUMBER ARE NOT EDITABLE
-    server.Put(R"(/api/customers/(\d+))",
-    [](const Request& req, Response& res) {
-        string id = req.matches[1];
-        auto rows = readFile(CUSTOMER_FILE, 13);
-
-        auto it = find_if(rows.begin(), rows.end(),
-            [&](const Row& r) { return r.data[0] == id; });
-
-        if (it == rows.end()) {
-            sendError(res, 404, "Customer not found.");
-            return;
-        }
-
-        const char* keys[] = {
-            "fullName", "fatherName", "motherName",
-            "dob", "phone", "address", "branch",
-            "accountType", "balance"
-        };
-
-        int indexes[] = {2,3,4,5,6,7,8,9,11};
-
-        for (int i = 0; i < 9; i++) {
-            string value = getValue(req, keys[i]);
-
-            if (!safeValue(value)) {
-                sendError(res, 400, "Invalid field.");
-                return;
-            }
-
-            if (i == 0 && value.empty()) {
-                sendError(res, 400, "Customer name required.");
-                return;
-            }
-
-            if (i == 8) {
-                try {
-                    if (stod(value) < 0) throw 1;
-                } catch (...) {
-                    sendError(res, 400, "Invalid balance.");
-                    return;
-                }
-            }
-
-            it->data[indexes[i]] = value;
-        }
-
-        if (!saveFile(CUSTOMER_FILE, rows)) {
-            sendError(res, 500, "Could not update customer.");
-            return;
-        }
-
-        res.set_content(customersJSON({*it}), "application/json");
-    });
-
-    // ACTIVATE / DEACTIVATE
-    server.Post(R"(/api/customers/(\d+)/status)",
-    [](const Request& req, Response& res) {
-        string id = req.matches[1];
-        string active = getValue(req, "active");
-
-        if (active != "0" && active != "1") {
-            sendError(res, 400, "Invalid status.");
-            return;
-        }
-
-        auto rows = readFile(CUSTOMER_FILE, 13);
-
-        auto it = find_if(rows.begin(), rows.end(),
-            [&](const Row& r) { return r.data[0] == id; });
-
-        if (it == rows.end()) {
-            sendError(res, 404, "Customer not found.");
-            return;
-        }
-
-        it->data[12] = active;
-
-        if (!saveFile(CUSTOMER_FILE, rows)) {
-            sendError(res, 500, "Could not update status.");
-            return;
-        }
-
-        res.set_content(R"({"success":true})", "application/json");
-    });
-
-    // DELETE CUSTOMER AND LINKED ACCOUNT
-    server.Delete(R"(/api/customers/(\d+))",
-    [](const Request& req, Response& res) {
-        string id = req.matches[1];
-        auto customers = readFile(CUSTOMER_FILE, 13);
-
-        auto it = find_if(customers.begin(), customers.end(),
-            [&](const Row& r) { return r.data[0] == id; });
-
-        if (it == customers.end()) {
-            sendError(res, 404, "Customer not found.");
-            return;
-        }
-
-        string cnic = it->data[1];
-        string number = it->data[10];
-
-        customers.erase(it);
-
-        if (!saveFile(CUSTOMER_FILE, customers)) {
-            sendError(res, 500, "Could not delete customer.");
-            return;
-        }
-
-        auto accounts = readFile(ACCOUNT_FILE, 5);
-
-        accounts.erase(remove_if(accounts.begin(), accounts.end(),
-            [&](const Row& r) {
-                return r.data[1] == cnic || r.data[2] == number;
-            }), accounts.end());
-
-        if (!saveFile(ACCOUNT_FILE, accounts)) {
-            sendError(res, 500, "Account cleanup failed.");
-            return;
-        }
-
-        res.set_content(R"({"success":true})", "application/json");
-    });
-
-    cout << "Bank Admin Portal running on port 8080" << endl;
-
-    if (!server.listen("0.0.0.0", 8080)) {
-        cerr << "Server could not start." << endl;
-        return 1;
-    }
-
-    return 0;
+int main(){
+ Server s;cors(s);
+ s.Get("/api/status",[](const Request&,Response&r){json(r,R"({"status":"ok","message":"API running"})");});
+
+ // STAFF: [id, first, last, title, email, phone, branch, six permission flags]
+ s.Get("/api/staff",[](const Request&,Response&r){json(r,rowsJson(readFile(STAFF_FILE)));});
+ s.Post("/api/staff",[](const Request&q,Response&r){auto v=readFile(STAFF_FILE);if(p(q,"firstName").empty()||p(q,"lastName").empty())return json(r,R"({"error":"First and last name are required"})",400);
+ v.push_back({idFor(v,"S"),p(q,"firstName"),p(q,"lastName"),p(q,"jobTitle"),p(q,"email"),p(q,"phone"),p(q,"branch"),p(q,"canViewCustomers"),p(q,"canManageAccounts"),p(q,"canViewReports"),p(q,"canManageStaff"),p(q,"canAddEmployees"),p(q,"canDeleteEmployees")});
+ if(!saveFile(STAFF_FILE,v))return json(r,R"({"error":"Unable to save staff"})",500);json(r,R"({"success":true})",201);});
+ s.Delete(R"(/api/staff/([A-Za-z0-9_-]+))",[](const Request&q,Response&r){string id=q.matches[1];auto v=readFile(STAFF_FILE);auto n=v.size();v.erase(remove_if(v.begin(),v.end(),[&](auto&a){return !a.empty()&&a[0]==id;}),v.end());if(n==v.size())return json(r,R"({"error":"Staff not found"})",404);if(!saveFile(STAFF_FILE,v))return json(r,R"({"error":"Save failed"})",500);json(r,R"({"success":true})");});
+
+ // CUSTOMER: [id, CNIC, name, father, mother, DOB, email, phone, address, branch, type, primary account no, balance, status]
+ s.Get("/api/customers",[](const Request&,Response&r){json(r,rowsJson(readFile(CUSTOMER_FILE)));});
+ s.Post("/api/customers",[](const Request&q,Response&r){auto c=readFile(CUSTOMER_FILE);auto a=readFile(ACCOUNT_FILE);string cn=p(q,"cnic"),name=p(q,"fullName");
+ if(!validCnic(cn))return json(r,R"({"error":"CNIC must be exactly 13 digits"})",400);
+ if(hasCnic(c,cn))return json(r,R"({"error":"CNIC already exists. Use Open New Account for this customer."})",409);
+ if(name.empty())return json(r,R"({"error":"Customer name is required"})",400);
+ string bal=p(q,"initialBalance");if(bal.empty())bal="0";try{if(stod(bal)<0)throw 1;}catch(...){return json(r,R"({"error":"Initial balance must be zero or greater"})",400);}
+ string no=newAccountNo(a);if(no.empty())return json(r,R"({"error":"Could not generate account number"})",500);
+ string cid=idFor(c,"C"),aid=idFor(a,"A"),type=p(q,"accountType");if(type.empty())type="Savings";
+ c.push_back({cid,cn,name,p(q,"fatherName"),p(q,"motherName"),p(q,"dob"),p(q,"email"),p(q,"phone"),p(q,"address"),p(q,"branch"),type,no,bal,"Active"});
+ a.push_back({aid,cn,no,type,"Active",bal});
+ if(!saveFile(CUSTOMER_FILE,c)||!saveFile(ACCOUNT_FILE,a))return json(r,R"({"error":"Could not save customer/account"})",500);
+ json(r,"{\"success\":true,\"customerId\":"+js(cid)+",\"accountNumber\":"+js(no)+"}",201);});
+ s.Put(R"(/api/customers/([A-Za-z0-9_-]+))",[](const Request&q,Response&r){string id=q.matches[1];auto v=readFile(CUSTOMER_FILE);bool ok=false;for(auto&x:v)if(!x.empty()&&x[0]==id){x.resize(max<size_t>(14,x.size()));x[2]=p(q,"fullName");x[3]=p(q,"fatherName");x[4]=p(q,"motherName");x[5]=p(q,"dob");x[6]=p(q,"email");x[7]=p(q,"phone");x[8]=p(q,"address");x[9]=p(q,"branch");x[10]=p(q,"accountType");x[12]=p(q,"balance");ok=true;}if(!ok)return json(r,R"({"error":"Customer not found"})",404);if(!saveFile(CUSTOMER_FILE,v))return json(r,R"({"error":"Save failed"})",500);json(r,R"({"success":true})");});
+ s.Put(R"(/api/customers/([A-Za-z0-9_-]+)/status)",[](const Request&q,Response&r){string id=q.matches[1],st=p(q,"status");if(st!="Active"&&st!="Inactive")return json(r,R"({"error":"Invalid status"})",400);auto v=readFile(CUSTOMER_FILE);bool ok=false;for(auto&x:v)if(!x.empty()&&x[0]==id){x.resize(max<size_t>(14,x.size()));x[13]=st;ok=true;}if(!ok)return json(r,R"({"error":"Customer not found"})",404);if(!saveFile(CUSTOMER_FILE,v))return json(r,R"({"error":"Save failed"})",500);json(r,R"({"success":true})");});
+ s.Delete(R"(/api/customers/([A-Za-z0-9_-]+))",[](const Request&q,Response&r){string id=q.matches[1],cn;auto c=readFile(CUSTOMER_FILE);for(auto&x:c)if(!x.empty()&&x[0]==id&&x.size()>1)cn=x[1];if(cn.empty())return json(r,R"({"error":"Customer not found"})",404);c.erase(remove_if(c.begin(),c.end(),[&](auto&x){return !x.empty()&&x[0]==id;}),c.end());auto a=readFile(ACCOUNT_FILE);a.erase(remove_if(a.begin(),a.end(),[&](auto&x){return x.size()>1&&x[1]==cn;}),a.end());if(!saveFile(CUSTOMER_FILE,c)||!saveFile(ACCOUNT_FILE,a))return json(r,R"({"error":"Delete failed"})",500);json(r,R"({"success":true})");});
+
+ // ACCOUNTS: [id, customer CNIC, generated number, type, status, balance]
+ s.Get("/api/accounts",[](const Request&,Response&r){json(r,rowsJson(readFile(ACCOUNT_FILE)));});
+ s.Post("/api/accounts",[](const Request&q,Response&r){auto c=readFile(CUSTOMER_FILE);auto a=readFile(ACCOUNT_FILE);string cn=p(q,"cnic");if(!hasCnic(c,cn))return json(r,R"({"error":"Customer CNIC not found; create customer first"})",404);string bal=p(q,"initialBalance");if(bal.empty())bal="0";try{if(stod(bal)<0)throw 1;}catch(...){return json(r,R"({"error":"Initial balance must be zero or greater"})",400);}string no=newAccountNo(a);if(no.empty())return json(r,R"({"error":"Could not generate account number"})",500);string type=p(q,"accountType");if(type.empty())return json(r,R"({"error":"Account type required"})",400);a.push_back({idFor(a,"A"),cn,no,type,"Active",bal});if(!saveFile(ACCOUNT_FILE,a))return json(r,R"({"error":"Could not save account"})",500);json(r,"{\"success\":true,\"accountNumber\":"+js(no)+"}",201);});
+ s.Put(R"(/api/accounts/([A-Za-z0-9_-]+)/status)",[](const Request&q,Response&r){string id=q.matches[1],st=p(q,"status");if(st!="Active"&&st!="Inactive")return json(r,R"({"error":"Invalid status"})",400);auto a=readFile(ACCOUNT_FILE);bool ok=false;for(auto&x:a)if(!x.empty()&&x[0]==id){x.resize(max<size_t>(6,x.size()));x[4]=st;ok=true;}if(!ok)return json(r,R"({"error":"Account not found"})",404);if(!saveFile(ACCOUNT_FILE,a))return json(r,R"({"error":"Save failed"})",500);json(r,R"({"success":true})");});
+
+ // BRANCHES: [id, name, code, address, manager]
+ s.Get("/api/branches",[](const Request&,Response&r){json(r,rowsJson(readFile(BRANCH_FILE)));});
+ s.Post("/api/branches",[](const Request&q,Response&r){auto v=readFile(BRANCH_FILE);if(p(q,"name").empty())return json(r,R"({"error":"Branch name required"})",400);v.push_back({idFor(v,"B"),p(q,"name"),p(q,"code"),p(q,"address"),p(q,"manager")});if(!saveFile(BRANCH_FILE,v))return json(r,R"({"error":"Save failed"})",500);json(r,R"({"success":true})",201);});
+
+ cout<<"Bank Admin Portal API listening on port 8080"<<endl;s.listen("0.0.0.0",8080);
 }
