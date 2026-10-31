@@ -1,4 +1,4 @@
-const API_BASE="PASTE_YOUR_CODESPACES_8080_URL_HERE";
+const API_BASE="https://supernatural-spider-p79g9gq7jg9jc6q6p-8080.app.github.dev";
 const $=id=>document.getElementById(id);let staff=[],customers=[],accounts=[],branches=[];
 async function api(path,method="GET",data=null){let o={method,headers:{}};if(data){o.headers["Content-Type"]="application/x-www-form-urlencoded";o.body=new URLSearchParams(data).toString();}let r=await fetch(API_BASE+path,o),t=await r.text(),v={};try{v=t?JSON.parse(t):{};}catch{}if(!r.ok)throw Error(v.error||`HTTP ${r.status}`);return v;}
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
