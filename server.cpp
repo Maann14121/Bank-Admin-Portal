@@ -1,73 +1,46 @@
 #include "httplib.h"
 #include <algorithm>
 #include <cctype>
-#include <chrono>
 #include <cstdio>
 #include <fstream>
 #include <iostream>
-#include <random>
 #include <sstream>
 #include <string>
 #include <vector>
 using namespace std;
 using namespace httplib;
-
-const string STAFF_FILE="staff.txt", CUSTOMER_FILE="customers.txt", ACCOUNT_FILE="accounts.txt", BRANCH_FILE="branches.txt";
-
-string clean(string s){ for(char &c:s) if(c=='|'||c=='\n'||c=='\r') c=' '; return s; }
-string esc(const string&s){string o;for(unsigned char c:s){switch(c){case '"':o+="\\\"";break;case '\\':o+="\\\\";break;case '\n':o+="\\n";break;case '\r':o+="\\r";break;case '\t':o+="\\t";break;default:if(c<32){char b[8];snprintf(b,sizeof(b),"\\u%04x",c);o+=b;}else o+=(char)c;}}return o;}
-string js(const string&s){return "\""+esc(s)+"\"";}
-vector<string> split(const string&s){vector<string>v;stringstream ss(s);string x;while(getline(ss,x,'|'))v.push_back(x);if(!s.empty()&&s.back()=='|')v.push_back("");return v;}
-vector<vector<string>> readFile(const string&f){vector<vector<string>>v;ifstream in(f);string l;while(getline(in,l))if(!l.empty())v.push_back(split(l));return v;}
-bool saveFile(const string&f,const vector<vector<string>>&v){string t=f+".tmp";ofstream o(t);if(!o)return false;for(auto&r:v){for(size_t i=0;i<r.size();i++){if(i)o<<'|';o<<clean(r[i]);}o<<'\n';}o.close();if(!o)return false;remove(f.c_str());return rename(t.c_str(),f.c_str())==0;}
-string p(const Request&r,const string&k){return r.has_param(k)?clean(r.get_param_value(k)):"";}
-string idFor(const vector<vector<string>>&v,const string&prefix){int n=0;for(auto&r:v)if(!r.empty()){string d;for(char c:r[0])if(isdigit((unsigned char)c))d+=c;try{if(!d.empty())n=max(n,stoi(d));}catch(...){}}return prefix+to_string(n+1);}
-string rowsJson(const vector<vector<string>>&v){string o="[";for(size_t i=0;i<v.size();i++){if(i)o+=",";o+="[";for(size_t j=0;j<v[i].size();j++){if(j)o+=",";o+=js(v[i][j]);}o+="]";}return o+"]";}
-void json(Response&r,const string&s,int status=200){r.status=status;r.set_content(s,"application/json; charset=utf-8");}
-bool hasCnic(const vector<vector<string>>&v,const string&c){for(auto&r:v)if(r.size()>1&&r[1]==c)return true;return false;}
-bool hasAccount(const vector<vector<string>>&v,const string&n){for(auto&r:v)if(r.size()>2&&r[2]==n)return true;return false;}
-string newAccountNo(const vector<vector<string>>&v){static mt19937_64 g((uint64_t)chrono::steady_clock::now().time_since_epoch().count());uniform_int_distribution<unsigned long long>d(100000000000ULL,999999999999ULL);for(int i=0;i<10000;i++){string n=to_string(d(g));if(!hasAccount(v,n))return n;}return "";}
-bool validCnic(const string&c){string d;for(char x:c)if(isdigit((unsigned char)x))d+=x;return d.size()==13;}
-void cors(Server&s){
- s.set_pre_routing_handler([](const Request&,Response&r){r.set_header("Access-Control-Allow-Origin","*");r.set_header("Access-Control-Allow-Methods","GET, POST, PUT, DELETE, OPTIONS");r.set_header("Access-Control-Allow-Headers","Content-Type");return Server::HandlerResponse::Unhandled;});
- s.Options(R"(.*)",[](const Request&,Response&r){r.status=204;});
-}
-int main(){
- Server s;cors(s);
- s.Get("/api/status",[](const Request&,Response&r){json(r,R"({"status":"ok","message":"API running"})");});
-
- // STAFF: [id, first, last, title, email, phone, branch, six permission flags]
- s.Get("/api/staff",[](const Request&,Response&r){json(r,rowsJson(readFile(STAFF_FILE)));});
- s.Post("/api/staff",[](const Request&q,Response&r){auto v=readFile(STAFF_FILE);if(p(q,"firstName").empty()||p(q,"lastName").empty())return json(r,R"({"error":"First and last name are required"})",400);
- v.push_back({idFor(v,"S"),p(q,"firstName"),p(q,"lastName"),p(q,"jobTitle"),p(q,"email"),p(q,"phone"),p(q,"branch"),p(q,"canViewCustomers"),p(q,"canManageAccounts"),p(q,"canViewReports"),p(q,"canManageStaff"),p(q,"canAddEmployees"),p(q,"canDeleteEmployees")});
- if(!saveFile(STAFF_FILE,v))return json(r,R"({"error":"Unable to save staff"})",500);json(r,R"({"success":true})",201);});
- s.Delete(R"(/api/staff/([A-Za-z0-9_-]+))",[](const Request&q,Response&r){string id=q.matches[1];auto v=readFile(STAFF_FILE);auto n=v.size();v.erase(remove_if(v.begin(),v.end(),[&](auto&a){return !a.empty()&&a[0]==id;}),v.end());if(n==v.size())return json(r,R"({"error":"Staff not found"})",404);if(!saveFile(STAFF_FILE,v))return json(r,R"({"error":"Save failed"})",500);json(r,R"({"success":true})");});
-
- // CUSTOMER: [id, CNIC, name, father, mother, DOB, email, phone, address, branch, type, primary account no, balance, status]
- s.Get("/api/customers",[](const Request&,Response&r){json(r,rowsJson(readFile(CUSTOMER_FILE)));});
- s.Post("/api/customers",[](const Request&q,Response&r){auto c=readFile(CUSTOMER_FILE);auto a=readFile(ACCOUNT_FILE);string cn=p(q,"cnic"),name=p(q,"fullName");
- if(!validCnic(cn))return json(r,R"({"error":"CNIC must be exactly 13 digits"})",400);
- if(hasCnic(c,cn))return json(r,R"({"error":"CNIC already exists. Use Open New Account for this customer."})",409);
- if(name.empty())return json(r,R"({"error":"Customer name is required"})",400);
- string bal=p(q,"initialBalance");if(bal.empty())bal="0";try{if(stod(bal)<0)throw 1;}catch(...){return json(r,R"({"error":"Initial balance must be zero or greater"})",400);}
- string no=newAccountNo(a);if(no.empty())return json(r,R"({"error":"Could not generate account number"})",500);
- string cid=idFor(c,"C"),aid=idFor(a,"A"),type=p(q,"accountType");if(type.empty())type="Savings";
- c.push_back({cid,cn,name,p(q,"fatherName"),p(q,"motherName"),p(q,"dob"),p(q,"email"),p(q,"phone"),p(q,"address"),p(q,"branch"),type,no,bal,"Active"});
- a.push_back({aid,cn,no,type,"Active",bal});
- if(!saveFile(CUSTOMER_FILE,c)||!saveFile(ACCOUNT_FILE,a))return json(r,R"({"error":"Could not save customer/account"})",500);
- json(r,"{\"success\":true,\"customerId\":"+js(cid)+",\"accountNumber\":"+js(no)+"}",201);});
- s.Put(R"(/api/customers/([A-Za-z0-9_-]+))",[](const Request&q,Response&r){string id=q.matches[1];auto v=readFile(CUSTOMER_FILE);bool ok=false;for(auto&x:v)if(!x.empty()&&x[0]==id){x.resize(max<size_t>(14,x.size()));x[2]=p(q,"fullName");x[3]=p(q,"fatherName");x[4]=p(q,"motherName");x[5]=p(q,"dob");x[6]=p(q,"email");x[7]=p(q,"phone");x[8]=p(q,"address");x[9]=p(q,"branch");x[10]=p(q,"accountType");x[12]=p(q,"balance");ok=true;}if(!ok)return json(r,R"({"error":"Customer not found"})",404);if(!saveFile(CUSTOMER_FILE,v))return json(r,R"({"error":"Save failed"})",500);json(r,R"({"success":true})");});
- s.Put(R"(/api/customers/([A-Za-z0-9_-]+)/status)",[](const Request&q,Response&r){string id=q.matches[1],st=p(q,"status");if(st!="Active"&&st!="Inactive")return json(r,R"({"error":"Invalid status"})",400);auto v=readFile(CUSTOMER_FILE);bool ok=false;for(auto&x:v)if(!x.empty()&&x[0]==id){x.resize(max<size_t>(14,x.size()));x[13]=st;ok=true;}if(!ok)return json(r,R"({"error":"Customer not found"})",404);if(!saveFile(CUSTOMER_FILE,v))return json(r,R"({"error":"Save failed"})",500);json(r,R"({"success":true})");});
- s.Delete(R"(/api/customers/([A-Za-z0-9_-]+))",[](const Request&q,Response&r){string id=q.matches[1],cn;auto c=readFile(CUSTOMER_FILE);for(auto&x:c)if(!x.empty()&&x[0]==id&&x.size()>1)cn=x[1];if(cn.empty())return json(r,R"({"error":"Customer not found"})",404);c.erase(remove_if(c.begin(),c.end(),[&](auto&x){return !x.empty()&&x[0]==id;}),c.end());auto a=readFile(ACCOUNT_FILE);a.erase(remove_if(a.begin(),a.end(),[&](auto&x){return x.size()>1&&x[1]==cn;}),a.end());if(!saveFile(CUSTOMER_FILE,c)||!saveFile(ACCOUNT_FILE,a))return json(r,R"({"error":"Delete failed"})",500);json(r,R"({"success":true})");});
-
- // ACCOUNTS: [id, customer CNIC, generated number, type, status, balance]
- s.Get("/api/accounts",[](const Request&,Response&r){json(r,rowsJson(readFile(ACCOUNT_FILE)));});
- s.Post("/api/accounts",[](const Request&q,Response&r){auto c=readFile(CUSTOMER_FILE);auto a=readFile(ACCOUNT_FILE);string cn=p(q,"cnic");if(!hasCnic(c,cn))return json(r,R"({"error":"Customer CNIC not found; create customer first"})",404);string bal=p(q,"initialBalance");if(bal.empty())bal="0";try{if(stod(bal)<0)throw 1;}catch(...){return json(r,R"({"error":"Initial balance must be zero or greater"})",400);}string no=newAccountNo(a);if(no.empty())return json(r,R"({"error":"Could not generate account number"})",500);string type=p(q,"accountType");if(type.empty())return json(r,R"({"error":"Account type required"})",400);a.push_back({idFor(a,"A"),cn,no,type,"Active",bal});if(!saveFile(ACCOUNT_FILE,a))return json(r,R"({"error":"Could not save account"})",500);json(r,"{\"success\":true,\"accountNumber\":"+js(no)+"}",201);});
- s.Put(R"(/api/accounts/([A-Za-z0-9_-]+)/status)",[](const Request&q,Response&r){string id=q.matches[1],st=p(q,"status");if(st!="Active"&&st!="Inactive")return json(r,R"({"error":"Invalid status"})",400);auto a=readFile(ACCOUNT_FILE);bool ok=false;for(auto&x:a)if(!x.empty()&&x[0]==id){x.resize(max<size_t>(6,x.size()));x[4]=st;ok=true;}if(!ok)return json(r,R"({"error":"Account not found"})",404);if(!saveFile(ACCOUNT_FILE,a))return json(r,R"({"error":"Save failed"})",500);json(r,R"({"success":true})");});
-
- // BRANCHES: [id, name, code, address, manager]
- s.Get("/api/branches",[](const Request&,Response&r){json(r,rowsJson(readFile(BRANCH_FILE)));});
- s.Post("/api/branches",[](const Request&q,Response&r){auto v=readFile(BRANCH_FILE);if(p(q,"name").empty())return json(r,R"({"error":"Branch name required"})",400);v.push_back({idFor(v,"B"),p(q,"name"),p(q,"code"),p(q,"address"),p(q,"manager")});if(!saveFile(BRANCH_FILE,v))return json(r,R"({"error":"Save failed"})",500);json(r,R"({"success":true})",201);});
-
- cout<<"Bank Admin Portal API listening on port 8080"<<endl;s.listen("0.0.0.0",8080);
-}
+using Row=vector<string>; using Rows=vector<Row>;
+const string SF="staff.txt", CF="customers.txt", AF="accounts.txt", BF="branches.txt";
+string esc(const string&s){string o;for(char c:s){if(c=='"')o+="\\\"";else if(c=='\\')o+="\\\\";else if(c=='\n')o+="\\n";else if(c=='\r')o+="\\r";else if((unsigned char)c>=32)o+=c;}return o;}
+string q(const string&s){return "\""+esc(s)+"\"";}
+string p(const Request&r,const string&k){return r.has_param(k)?r.get_param_value(k):"";}
+bool safe(const string&s){return s.find('|')==string::npos&&s.find('\n')==string::npos&&s.find('\r')==string::npos;}
+Rows read(const string&f){Rows a;ifstream in(f);string line;while(getline(in,line)){Row r;stringstream ss(line);string v;while(getline(ss,v,'|'))r.push_back(v);if(!r.empty())a.push_back(r);}return a;}
+bool write(const string&f,const Rows&a){string t=f+".tmp";{ofstream o(t);if(!o)return false;for(auto&r:a){for(size_t i=0;i<r.size();i++){if(i)o<<'|';o<<r[i];}o<<'\n';}if(!o.good())return false;}if(rename(t.c_str(),f.c_str())){remove(t.c_str());return false;}return true;}
+string nextId(const Rows&a){long long n=0;for(auto&r:a)try{n=max(n,stoll(r[0]));}catch(...){}return to_string(n+1);}
+string bt(string s){return(s=="1"||s=="true"||s=="TRUE"||s=="yes"||s=="on")?"true":"false";}
+Rows staff(){Rows out;for(auto r:read(SF)){if(r.size()==11){r.push_back("0");r.push_back("0");}if(r.size()==13){if(r[4].find('@')==string::npos&&r[5].find('@')!=string::npos)swap(r[4],r[5]);for(int i=7;i<13;i++)r[i]=bt(r[i]);out.push_back(r);}}write(SF,out);return out;}
+Rows customers(){Rows out;for(auto r:read(CF)){if(r.size()==7)r={r[0],r[1],r[2],"","","","","","","",r[3],r[4],r[5],r[6]=="1"?"Active":r[6]};if(r.size()==13)r.insert(r.begin()+6,"");if(r.size()==14){if(r[13]=="1")r[13]="Active";if(r[13]=="0")r[13]="Inactive";out.push_back(r);}}write(CF,out);return out;}
+Rows accounts(){Rows out;for(auto r:read(AF)){if(r.size()==5){string bal="0";for(auto&c:customers())if(c[1]==r[1]&&c[11]==r[2])bal=c[12];r.push_back(bal);r[4]=r[4]=="1"?"Active":r[4]=="0"?"Inactive":r[4];}if(r.size()==6)out.push_back(r);}write(AF,out);return out;}
+Rows branches(){Rows out;for(auto r:read(BF))if(r.size()==5)out.push_back(r);return out;}
+string arr(const Rows&a){string s="[";for(size_t i=0;i<a.size();i++){if(i)s+=",";s+="[";for(size_t j=0;j<a[i].size();j++){if(j)s+=",";s+=q(a[i][j]);}s+="]";}return s+"]";}
+void send(Response&r,string s,int code=200){r.status=code;r.set_content(s,"application/json; charset=utf-8");}
+string err(string s){return "{\"error\":"+q(s)+"}";}
+bool valid(const Row&r){for(auto&s:r)if(!safe(s))return false;return true;}
+string accountNo(const Rows&a){unsigned long long n=100000000000ULL;for(auto&r:a)try{n=max(n,stoull(r[2]));}catch(...){}return to_string(n+1);}
+int main(){Server s;s.set_default_headers({{"Access-Control-Allow-Origin","*"},{"Access-Control-Allow-Methods","GET,POST,PUT,DELETE,OPTIONS"},{"Access-Control-Allow-Headers","Content-Type"}});s.Options(R"(.*)",[](const Request&,Response&r){r.status=204;});
+s.Get("/api/status",[](const Request&,Response&r){send(r,"{\"status\":\"ok\"}");});
+s.Get("/api/staff",[](const Request&,Response&r){send(r,arr(staff()));});
+s.Post("/api/staff",[](const Request&req,Response&r){auto a=staff();Row x={nextId(a),p(req,"firstName"),p(req,"lastName"),p(req,"jobTitle"),p(req,"email"),p(req,"phone"),p(req,"branch"),bt(p(req,"canViewCustomers")),bt(p(req,"canManageAccounts")),bt(p(req,"canViewReports")),bt(p(req,"canManageStaff")),bt(p(req,"canAddEmployees")),bt(p(req,"canDeleteEmployees"))};if(x[1].empty()||x[2].empty()||!valid(x)){send(r,err("First and last name are required; fields cannot contain |"),400);return;}a.push_back(x);if(!write(SF,a)){send(r,err("Cannot save staff file"),500);return;}send(r,"{\"success\":true,\"id\":"+q(x[0])+"}",201);});
+s.Delete(R"(/api/staff/(\d+))",[](const Request&req,Response&r){auto a=staff();Rows b;string id=req.matches[1];for(auto&x:a)if(x[0]!=id)b.push_back(x);if(a.size()==b.size()){send(r,err("Employee not found"),404);return;}write(SF,b);send(r,"{\"success\":true}");});
+s.Get("/api/customers",[](const Request&,Response&r){send(r,arr(customers()));});
+s.Post("/api/customers",[](const Request&req,Response&r){auto c=customers();auto a=accounts();string cn=p(req,"cnic"),name=p(req,"fullName");if(cn.size()!=13||!all_of(cn.begin(),cn.end(),[](unsigned char z){return isdigit(z);})){send(r,err("New CNIC must be exactly 13 digits"),400);return;}for(auto&x:c)if(x[1]==cn){send(r,err("CNIC already exists. Use Additional Account."),409);return;}string no=accountNo(a),type=p(req,"accountType"),bal=p(req,"initialBalance");if(type.empty())type="Savings";if(bal.empty())bal="0";Row x={nextId(c),cn,name,p(req,"fatherName"),p(req,"motherName"),p(req,"dob"),p(req,"email"),p(req,"phone"),p(req,"address"),p(req,"branch"),type,no,bal,"Active"};if(name.empty()||!valid(x)){send(r,err("Full name required or invalid field"),400);return;}c.push_back(x);a.push_back({nextId(a),cn,no,type,"Active",bal});if(!write(CF,c)||!write(AF,a)){send(r,err("Could not save customer/account"),500);return;}send(r,"{\"success\":true,\"accountNumber\":"+q(no)+"}",201);});
+s.Put(R"(/api/customers/(\d+))",[](const Request&req,Response&r){auto c=customers();string id=req.matches[1];bool found=false;vector<pair<int,string>> f={{2,"fullName"},{3,"fatherName"},{4,"motherName"},{5,"dob"},{6,"email"},{7,"phone"},{8,"address"},{9,"branch"},{10,"accountType"},{12,"balance"}};for(auto&x:c)if(x[0]==id){found=true;for(auto&z:f)if(req.has_param(z.second))x[z.first]=p(req,z.second);}if(!found){send(r,err("Customer not found"),404);return;}write(CF,c);auto a=accounts();for(auto&x:c)if(x[0]==id)for(auto&y:a)if(y[1]==x[1]&&y[2]==x[11]){y[3]=x[10];y[5]=x[12];}write(AF,a);send(r,"{\"success\":true}");});
+s.Put(R"(/api/customers/(\d+)/status)",[](const Request&req,Response&r){auto c=customers();string id=req.matches[1],st=p(req,"status");if(st!="Active"&&st!="Inactive"){send(r,err("Status must be Active or Inactive"),400);return;}bool ok=false;for(auto&x:c)if(x[0]==id){x[13]=st;ok=true;}if(!ok){send(r,err("Customer not found"),404);return;}write(CF,c);send(r,"{\"success\":true}");});
+s.Delete(R"(/api/customers/(\d+))",[](const Request&req,Response&r){auto c=customers();Rows co;string id=req.matches[1],cn;for(auto&x:c)if(x[0]==id)cn=x[1];else co.push_back(x);if(cn.empty()){send(r,err("Customer not found"),404);return;}Rows ao;for(auto&x:accounts())if(x[1]!=cn)ao.push_back(x);write(CF,co);write(AF,ao);send(r,"{\"success\":true}");});
+s.Get("/api/accounts",[](const Request&,Response&r){send(r,arr(accounts()));});
+s.Post("/api/accounts",[](const Request&req,Response&r){auto c=customers();auto a=accounts();string cn=p(req,"cnic");bool exists=false;for(auto&x:c)if(x[1]==cn)exists=true;if(!exists){send(r,err("Customer CNIC not found"),404);return;}string no=accountNo(a),type=p(req,"accountType"),bal=p(req,"initialBalance");if(type.empty())type="Savings";if(bal.empty())bal="0";a.push_back({nextId(a),cn,no,type,"Active",bal});write(AF,a);send(r,"{\"success\":true,\"accountNumber\":"+q(no)+"}",201);});
+s.Put(R"(/api/accounts/(\d+)/status)",[](const Request&req,Response&r){auto a=accounts();string id=req.matches[1],st=p(req,"status");if(st!="Active"&&st!="Inactive"){send(r,err("Invalid status"),400);return;}bool ok=false;for(auto&x:a)if(x[0]==id){x[4]=st;ok=true;}if(!ok){send(r,err("Account not found"),404);return;}write(AF,a);send(r,"{\"success\":true}");});
+s.Get("/api/branches",[](const Request&,Response&r){send(r,arr(branches()));});
+s.Post("/api/branches",[](const Request&req,Response&r){auto a=branches();Row x={nextId(a),p(req,"name"),p(req,"code"),p(req,"address"),p(req,"manager")};if(x[1].empty()||!valid(x)){send(r,err("Branch name required"),400);return;}a.push_back(x);write(BF,a);send(r,"{\"success\":true}",201);});
+cout<<"API running on port 8080"<<endl;s.listen("0.0.0.0",8080);}
